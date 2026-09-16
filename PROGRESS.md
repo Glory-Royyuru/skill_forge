@@ -2,11 +2,13 @@
 
 ## Phase checklist
 
-- [x] **Phase 0 — Ready for review.** Scaffold, config, DB, LLM provider
-      layer, health endpoint.
+- [x] **Phase 0 — Done.** Scaffold, config, DB, LLM provider layer, health
+      endpoint.
       Gate: tests pass with no API keys; server starts; health ok.
-      16/16 tests pass, ruff clean, server verified manually. Awaiting
-      sign-off before starting Phase 1.
+      Re-verified: 16/16 tests pass, ruff clean, server started and
+      `/api/health` returned `{"status":"ok","database":"ok"}` (200), CLI
+      `health` command returned exit 0. See PRD.md (added to repo root) and
+      `docs/SPEC_PHASE1.md` for the Phase 1 spec.
 - [ ] **Phase 1.** E-commerce refund environment, seeded task generator with
       train/validation/test splits, deterministic evaluator.
       Gate: oracle agent scores 100%; same seed gives identical tasks.
@@ -36,6 +38,18 @@
 
 - (Phase 0) Repo scaffolded fresh; no PRD.md present yet — following the
   kickoff message as the spec of record until PRD.md is added.
+- (Phase 0, verification pass) PRD.md appeared in the repo (added via a
+  GitHub web upload, commit `2aafa74`) between the original Phase 0 build
+  and this verification pass; git history also shows Phase 0 itself was
+  already committed (`b0847be` "feat: complete phase 0 foundation", merged
+  via `d95ae2a`) with content byte-identical to what this session
+  re-verified. Read PRD.md in full: it is consistent with (a superset of)
+  the Phase 1 spec given for this session — same Environment protocol,
+  same R1-R10 policy, same evaluator output shape, same data model. No
+  conflicts to reconcile. Since the working tree already matched HEAD, no
+  new "Phase 0: scaffold, DB, LLM provider layer, health endpoint" commit
+  was created (would have been empty); this PROGRESS.md update is the
+  honest follow-up commit instead.
 - (Phase 0) `pyproject.toml` lives in `backend/` (not repo root), so the
   package root aligns with `backend/skillforge/`. All commands `cd` into
   `backend/` first (see Makefile / README).
