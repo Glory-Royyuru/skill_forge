@@ -169,7 +169,8 @@ class EcommerceRefundEnvironment:
 
     def evaluate(self) -> EvaluationResult:
         assert self._expected is not None
-        return evaluate_attempt(self._expected, self._trajectory)
+        assert self._world is not None
+        return evaluate_attempt(self._expected, self._trajectory, self._world.order.order_id)
 
     # -- Tool handlers ---------------------------------------------------------
 
@@ -232,20 +233,14 @@ class EcommerceRefundEnvironment:
         entries = [asdict(e) for e in self._world.history.entries]
         return ActionResult(ok=True, tool="view_order_history", output={"entries": entries})
 
-    def _terminal_order_id_check(self, tool: str, order_id: str) -> ActionResult | None:
-        """Terminal actions must target the order the request concerns —
-        not a distractor. A mismatch is recorded as an error and does NOT
-        end the episode, so the agent can retry with the right id.
-        """
-        assert self._world is not None
-        if order_id != self._world.order.order_id:
-            return ActionResult(ok=False, tool=tool, error="order_id_mismatch")
-        return None
+    # Terminal tools execute unconditionally once schema-valid — including
+    # when `order_id` isn't the request's target order (a real distractor
+    # order, or a wholly made-up id). That's a legitimate (wrong) decision
+    # now, not a call the environment refuses: `evaluate_attempt` classifies
+    # it as `error_type="wrong_order"` and ends the episode, rather than
+    # silently giving the agent a free retry. See Phase 1.1 PROGRESS.md.
 
     def _tool_process_refund(self, args: dict) -> ActionResult:
-        mismatch = self._terminal_order_id_check("process_refund", args["order_id"])
-        if mismatch is not None:
-            return mismatch
         return ActionResult(
             ok=True,
             tool="process_refund",
@@ -259,9 +254,6 @@ class EcommerceRefundEnvironment:
         )
 
     def _tool_reject_refund(self, args: dict) -> ActionResult:
-        mismatch = self._terminal_order_id_check("reject_refund", args["order_id"])
-        if mismatch is not None:
-            return mismatch
         return ActionResult(
             ok=True,
             tool="reject_refund",
@@ -274,9 +266,6 @@ class EcommerceRefundEnvironment:
         )
 
     def _tool_escalate(self, args: dict) -> ActionResult:
-        mismatch = self._terminal_order_id_check("escalate", args["order_id"])
-        if mismatch is not None:
-            return mismatch
         return ActionResult(
             ok=True,
             tool="escalate",

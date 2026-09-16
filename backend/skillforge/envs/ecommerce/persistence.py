@@ -11,6 +11,8 @@ from skillforge.db.models import Environment as DBEnvironment
 from skillforge.db.models import Task as DBTask
 from skillforge.envs.base import Task
 from skillforge.envs.ecommerce.environment import EcommerceRefundEnvironment
+from skillforge.envs.ecommerce.generator import BUCKET_NAMES, classify_expected
+from skillforge.envs.ecommerce.policy import Expected
 
 ENVIRONMENT_VERSION = "1"
 
@@ -95,3 +97,26 @@ def count_by_split_and_rule(db: Session, environment_id: int) -> dict[str, dict[
         for rule_id in row.ground_truth_json.get("rules_involved", []):
             split_counts[rule_id] = split_counts.get(rule_id, 0) + 1
     return counts
+
+
+def count_decision_stats(db: Session, environment_id: int) -> dict[str, dict[str, int]]:
+    """`{split: {"total", "process_full", "process_adjusted", "reject",
+    "escalate", "interaction", "r1_only"}}` — same dev/CLI-tooling
+    justification as `count_by_split_and_rule` for reading
+    `ground_truth_json` directly.
+    """
+    rows = db.scalars(select(DBTask).where(DBTask.environment_id == environment_id)).all()
+    stats: dict[str, dict[str, int]] = {}
+    for row in rows:
+        split_stats = stats.setdefault(
+            row.split, {"total": 0, "interaction": 0, "r1_only": 0, **dict.fromkeys(BUCKET_NAMES, 0)}
+        )
+        split_stats["total"] += 1
+        expected = Expected(**row.ground_truth_json)
+        bucket, interaction, r1_only = classify_expected(expected)
+        split_stats[bucket] += 1
+        if interaction:
+            split_stats["interaction"] += 1
+        if r1_only:
+            split_stats["r1_only"] += 1
+    return stats

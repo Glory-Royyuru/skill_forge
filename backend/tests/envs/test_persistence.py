@@ -18,7 +18,7 @@ def test_get_or_create_environment_is_idempotent(db):
 
 
 def test_save_and_load_round_trip(db):
-    tasks = generate_tasks(seed=42, n=60)
+    tasks = generate_tasks(seed=42, n=200)
     with db.session() as session:
         env_row = get_or_create_environment(session)
         count = save_tasks(session, env_row.id, seed=42, tasks=tasks)
@@ -30,7 +30,7 @@ def test_save_and_load_round_trip(db):
 
 
 def test_save_tasks_is_idempotent_per_seed(db):
-    tasks = generate_tasks(seed=42, n=60)
+    tasks = generate_tasks(seed=42, n=200)
     with db.session() as session:
         env_row = get_or_create_environment(session)
         save_tasks(session, env_row.id, seed=42, tasks=tasks)
@@ -41,7 +41,7 @@ def test_save_tasks_is_idempotent_per_seed(db):
 
 
 def test_load_tasks_filters_by_split(db):
-    tasks = generate_tasks(seed=42, n=60)
+    tasks = generate_tasks(seed=42, n=200)
     with db.session() as session:
         env_row = get_or_create_environment(session)
         save_tasks(session, env_row.id, seed=42, tasks=tasks)
@@ -52,13 +52,13 @@ def test_load_tasks_filters_by_split(db):
 
 
 def test_count_tasks_by_split(db):
-    tasks = generate_tasks(seed=42, n=60)
+    tasks = generate_tasks(seed=42, n=200)
     with db.session() as session:
         env_row = get_or_create_environment(session)
         save_tasks(session, env_row.id, seed=42, tasks=tasks)
 
         counts = count_tasks_by_split(session, env_row.id)
-        assert sum(counts.values()) == 60
+        assert sum(counts.values()) == 200
         assert set(counts) == {"train", "validation", "test"}
 
 

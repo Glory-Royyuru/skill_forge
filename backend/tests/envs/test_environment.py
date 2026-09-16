@@ -18,7 +18,7 @@ DECISION_ONLY_KEYS = {"reason_code", "rules_involved", "expected", "critical", "
 
 
 def _first_task():
-    return generate_tasks(seed=1, n=54)[0]
+    return generate_tasks(seed=1, n=200)[0]
 
 
 def test_reset_returns_state_with_request_and_not_done():
@@ -115,7 +115,11 @@ def test_action_after_terminal_is_not_executed():
     assert second.error == "episode_already_terminated"
 
 
-def test_terminal_action_on_wrong_order_id_does_not_end_episode():
+def test_terminal_action_on_wrong_order_id_ends_episode_as_wrong_order():
+    # Phase 1.1: a terminal action on an order other than the task's
+    # target now executes (the environment doesn't gate on order id
+    # anymore) and ends the episode; evaluate() is what classifies it as
+    # error_type="wrong_order", not the environment refusing the call.
     task = _first_task()
     env = EcommerceRefundEnvironment()
     env.reset(task)
@@ -125,9 +129,28 @@ def test_terminal_action_on_wrong_order_id_does_not_end_episode():
             args={"order_id": "not-the-target-order", "reason_code": "window_expired"},
         )
     )
-    assert result.ok is False
-    assert result.error == "order_id_mismatch"
-    assert env.get_state().done is False
+    assert result.ok is True
+    assert result.terminal is True
+    assert env.get_state().done is True
+
+    evaluation = env.evaluate()
+    assert evaluation.error_type == "wrong_order"
+    assert evaluation.success is False
+
+
+def test_process_refund_on_wrong_order_id_is_critical():
+    task = _first_task()
+    env = EcommerceRefundEnvironment()
+    env.reset(task)
+    env.execute_action(
+        Action(
+            tool="process_refund",
+            args={"order_id": "not-the-target-order", "amount": 10.0, "method": "original_payment"},
+        )
+    )
+    evaluation = env.evaluate()
+    assert evaluation.error_type == "wrong_order"
+    assert evaluation.critical is True
 
 
 def test_list_tools_returns_all_eight_tools():
@@ -154,7 +177,7 @@ def test_ground_truth_never_reachable_from_state_or_tool_outputs():
     decision-only key. This is the structural proof that hidden ground
     truth cannot leak through any learner-facing surface.
     """
-    tasks = generate_tasks(seed=7, n=60)
+    tasks = generate_tasks(seed=7, n=200)
 
     for task in tasks:
         env = EcommerceRefundEnvironment()
@@ -191,7 +214,7 @@ def test_task_ground_truth_contains_no_world_leak_and_no_extra_facts():
     certainly not the raw order/customer records (those belong in
     initial_state, which is legitimately tool-reachable).
     """
-    tasks = generate_tasks(seed=3, n=54)
+    tasks = generate_tasks(seed=3, n=200)
     expected_keys = {"action", "amount", "method", "reason_code", "rules_involved"}
     for task in tasks:
         assert set(task.ground_truth.keys()) == expected_keys

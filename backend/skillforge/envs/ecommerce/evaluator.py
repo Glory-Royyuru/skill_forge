@@ -1,9 +1,14 @@
 """Deterministic, pure-Python evaluator. No LLM involved anywhere here —
 the Teacher is never the source of truth for pass/fail.
 
-`evaluate_attempt` takes the hidden `Expected` answer and the trajectory of
-(Action, ActionResult) pairs recorded during an episode, and produces an
-`EvaluationResult` per the Phase 1 spec's output shape.
+`evaluate_attempt` takes the hidden `Expected` answer, the trajectory of
+(Action, ActionResult) pairs recorded during an episode, and the task's
+target `order_id`, and produces an `EvaluationResult` per the Phase 1 spec's
+output shape. `error_type` is one of: `wrong_decision`, `wrong_amount`,
+`wrong_method`, `wrong_reason_code`, `wrong_order`, `missed_escalation`,
+`invalid_tool_sequence`, `no_final_action` (see Phase 1.1 in PROGRESS.md's
+Decisions log for `wrong_order`/`wrong_reason_code`, added after Phase 1's
+gate).
 """
 
 from __future__ import annotations
@@ -24,12 +29,14 @@ def _extract_actual(trajectory: list[tuple[Action, ActionResult]]) -> dict:
         if action.tool == "process_refund":
             return {
                 "action": "process_refund",
+                "order_id": action.args.get("order_id"),
                 "amount": action.args.get("amount"),
                 "method": action.args.get("method"),
                 "reason_code": None,
             }
         return {
             "action": action.tool,
+            "order_id": action.args.get("order_id"),
             "amount": None,
             "method": None,
             "reason_code": action.args.get("reason_code"),
@@ -37,22 +44,26 @@ def _extract_actual(trajectory: list[tuple[Action, ActionResult]]) -> dict:
 
     if terminal_attempts:
         # At least one terminal tool was attempted, but every attempt was
-        # invalid (bad order id, schema violation, etc.) — distinct from
-        # never trying at all.
+        # invalid (schema violation — missing/malformed args). Distinct
+        # from never trying at all. Note: targeting the wrong order_id is
+        # NOT a reason to land here anymore — the environment executes
+        # such calls (see environment.py); that's `wrong_order` below.
         return {
             "action": None,
+            "order_id": None,
             "amount": None,
             "method": None,
             "reason_code": None,
             "attempted_tool": terminal_attempts[-1][0].tool,
         }
 
-    return {"action": None, "amount": None, "method": None, "reason_code": None}
+    return {"action": None, "order_id": None, "amount": None, "method": None, "reason_code": None}
 
 
 def evaluate_attempt(
     expected: Expected,
     trajectory: list[tuple[Action, ActionResult]],
+    target_order_id: str,
 ) -> EvaluationResult:
     actual = _extract_actual(trajectory)
     expected_dict = {
@@ -69,6 +80,21 @@ def evaluate_attempt(
             score=0.0,
             critical=False,
             error_type=error_type,
+            expected=expected_dict,
+            actual=actual,
+            rules_involved=expected.rules_involved,
+        )
+
+    # wrong_order: a terminal action was taken on an order other than the
+    # request's target. This is checked before — and takes priority over —
+    # action/parameter correctness: whatever was decided, it wasn't decided
+    # about this task's order, so no partial credit for happening to match.
+    if actual["order_id"] != target_order_id:
+        return EvaluationResult(
+            success=False,
+            score=0.0,
+            critical=actual["action"] == "process_refund",
+            error_type="wrong_order",
             expected=expected_dict,
             actual=actual,
             rules_involved=expected.rules_involved,
@@ -113,10 +139,9 @@ def evaluate_attempt(
         if expected.action == "process_refund":
             error_type = "wrong_amount" if not amount_ok else "wrong_method"
         else:
-            # Same terminal action (reject/escalate) but a different
-            # reason_code. The given error_type vocabulary has no
-            # dedicated bucket for this, so it folds into wrong_decision.
-            error_type = "wrong_decision"
+            # Same terminal action (reject/escalate), but a different
+            # reason_code. Not critical: no money moved either way.
+            error_type = "wrong_reason_code"
 
     return EvaluationResult(
         success=success,

@@ -23,6 +23,24 @@
       verified both by a dedicated unit test and by a live
       `generate_tasks(seed=42, n=300)` called twice, asserted
       byte-identical.
+      **Superseded by Phase 1.1** (below): the "RandomAgent can't
+      accidentally issue money" claim above no longer holds once
+      `wrong_order` was added — a wrong-order `process_refund` is now
+      legitimately critical. Kept here for the historical record of what
+      Phase 1's gate actually measured.
+- [x] **Phase 1.1 — Done.** Fix pass after the Phase 1 gate: `envs stats`
+      on the real distribution surfaced two problems that would have
+      undermined Phase 2 — (1) a wrong-order terminal call was refused and
+      retried rather than scored, so an agent could never be penalized for
+      targeting the wrong order; (2) task generation was recipe+random
+      rather than stratified, so the decision mix, interaction share, and
+      per-rule counts were whatever fell out of random sampling, not
+      controlled targets.
+      Gate: pytest + ruff clean; regenerate seed=7 n=1400; `envs stats`
+      exits 0; Oracle 100% / Random reported on 200 validation tasks.
+      See the Decisions log for what changed and why, and
+      `docs/SPEC_PHASE1.md`'s "Phase 1.1 amendments" section for the full
+      technical summary.
 
       **Plan:**
       - `envs/base.py` + `envs/agents.py`: generic `Environment` Protocol,
@@ -115,14 +133,11 @@
     (no "R1"/"R2" rule ids) — "not shown verbatim to the learner" is read
     as protecting the evaluator's internal rule bookkeeping, not as a
     reason to cripple a tool the spec explicitly lists as real.
-  - A terminal action (`process_refund`/`reject_refund`/`escalate`) whose
+  - ~~A terminal action (`process_refund`/`reject_refund`/`escalate`) whose
     `order_id` doesn't match the request's target order is rejected as
     `order_id_mismatch` and does **not** end the episode (the agent can
-    retry against the right order). This was chosen over silently scoring
-    it as a decision on the wrong order, since the given `error_type`
-    vocabulary has no slot for "acted on the wrong order" and silently
-    comparing amount/method against the wrong order's context would be a
-    much stranger, harder-to-diagnose failure mode.
+    retry against the right order).~~ **Superseded in Phase 1.1** — see
+    below: it now ends the episode and is scored `wrong_order`.
   - A reason-code mismatch on an otherwise-correct `reject_refund`/
     `escalate` (right action, wrong reason) has no dedicated bucket in the
     given `error_type` vocabulary (`wrong_decision, wrong_amount,
@@ -168,9 +183,10 @@
   `n` or RNG luck, topped up with fully-randomized filler scenarios (with
   distractors) for volume/diversity. Splits for filler tasks are assigned
   by shuffling positions with the same seeded RNG and slicing by ratio.
-  Minimum `n` is `len(RECIPES) * 3` (54); `generate_tasks` raises
-  `ValueError` below that rather than silently producing a split with
-  missing rule coverage.
+  ~~Minimum `n` is `len(RECIPES) * 3` (54)~~ **superseded in Phase 1.1**
+  (stratification raised the real minimum to ~140 — see below);
+  `generate_tasks` still raises `ValueError` below the minimum rather than
+  silently producing a split with missing rule coverage.
 - (Phase 1) `tasks.ground_truth_json` stores exactly the `Expected` shape
   (`asdict()` of the dataclass, including `rules_involved`) — no separate
   `rule_ids` column was needed. `envs stats` reads `rules_involved`
@@ -188,6 +204,82 @@
   Enum)` mixin classes in `envs/ecommerce/models.py` became `StrEnum`
   (stdlib, Python 3.11+) — same JSON-serialization behavior, less
   boilerplate.
+- (Phase 1.1) **`wrong_order` ends the episode instead of being refused.**
+  Phase 1's environment refused a terminal call on the wrong order
+  (`order_id_mismatch`, non-terminal, free retry) reasoning that the given
+  `error_type` vocabulary had "no slot" for it. The user's Phase 1.1 spec
+  corrected this directly: a terminal action on the wrong order now
+  executes (the environment no longer knows or cares which order is
+  "right" — that's not its job) and `evaluate_attempt` classifies it as
+  `wrong_order`, critical iff the action was `process_refund`. This is
+  more realistic (a real refund tool doesn't grant free retries for
+  targeting the wrong order) and — because `RandomAgent`'s fabricated
+  order ids essentially never match the target — it also fixed a
+  Phase 1 blind spot: RandomAgent could never previously be critical at
+  all, which was a weaker baseline than intended for Phase 2 comparisons.
+- (Phase 1.1) **`wrong_reason_code` split out from `wrong_decision`.**
+  Same-action-wrong-reason (reject/escalate) now gets its own
+  `error_type` instead of folding into `wrong_decision`, giving Phase 4's
+  diagnosis step a real signal to distinguish "picked the wrong action
+  entirely" from "picked the right action, wrong justification."
+- (Phase 1.1) **Generator rewritten as stratified allocation, not
+  rejection sampling.** `envs stats` on Phase 1's recipe+random generator
+  showed the decision mix, interaction share, and per-rule counts were
+  whatever random sampling happened to produce — no control over them.
+  Rejection sampling (generate randomly, keep only what's needed) was
+  considered and rejected: hitting *exact* percentage targets that way
+  requires either many discarded samples near the end (slow, and awkward
+  to keep deterministic) or accepting drift. Instead: a weighted menu of
+  ~28 "cells", each hand-classified into (decision bucket, interaction
+  flag, R1-only flag) and self-checked against `resolve_ground_truth`'s
+  actual output at generation time (`AssertionError` if a cell's
+  assumption about its own output is wrong — this caught real bugs during
+  tuning, see below). Per split: compute each bucket's target count from
+  the 25/20/30/25% split, subtract what the 18 fixed recipes already
+  contribute, then allocate the remainder across that bucket's cells by
+  weight by exact largest-remainder rounding — not sampled, so a split's
+  bucket percentages land within a fraction of a point of target at any
+  `n`, every run, every seed.
+- (Phase 1.1) **`DEFAULT_N` changed from 300 to 1400.** The per-rule
+  minimums (60 train / 20 val+test) are spec'd "at the default size
+  (220)" — chosen so validation and test both land on exactly 220 tasks
+  by construction (`DEFAULT_SPLIT_COUNTS = {"train": 960, "validation":
+  220, "test": 220}`, summing to 1400). `envs generate`'s `--n` still
+  defaults to `DEFAULT_N`, so plain `envs generate --seed X` remains the
+  "guaranteed to pass every target" path.
+- (Phase 1.1) **Per-rule minimums, and the CLI's stricter checks, are
+  hard-enforced only at `n == DEFAULT_N`.** Scaling the 60/20/20 minimums
+  proportionally to arbitrary `n` sounds appealing but interacts badly
+  with integer rounding in the cell allocator: e.g. `n=180` failed R8's
+  scaled minimum by one task while `n=160` and `n=300` both passed — a
+  real but harmless artifact of proportional rounding, not a generator
+  bug. Since the spec only promises the minimums "at the default size,"
+  `generate_tasks()` hard-fails only there; for any other `n` it applies a
+  much weaker sanity check (every rule present at least once). `envs
+  stats`, by contrast, *always* reports and flags shortfalls at whatever
+  size is actually persisted (see next entry) — that's intentionally
+  stricter than the generator's own internal guarantee.
+- (Phase 1.1) **`envs stats` validates unconditionally, even below
+  `DEFAULT_N`.** At `n=300` (a size that generates successfully),
+  validation/test's interaction share lands at ~38%, just under the 40%
+  floor — an inherent consequence of the 18 fixed recipes (only ~17%
+  interaction) making up a larger fraction of a smaller split, not a bug.
+  `envs stats` reports this as a real, honest failure rather than
+  suppressing it below some size threshold: the tool's job is to describe
+  what's actually in the database, and the CLI's own `--n` default already
+  steers users to the one size (1400) where every target is guaranteed.
+  Existing tests/call sites using small `n` (54, 60, 100) were bumped to
+  clear the new ~140 minimum; stratification-heavy tests use
+  `DEFAULT_N` explicitly.
+- (Phase 1.1) **R9 tagging bug, round two.** While tuning cell weights to
+  clear the per-rule minimums, the R9 crosscutting overlay (applied to
+  every cell to add a claimed-date conflict ~35% of the time) was
+  initially applied unconditionally, including to the two cells declared
+  `r1_only=True` — which silently broke their own promise
+  (`rules_involved` became `["R1", "R9"]`, not `["R1"]`). The cell
+  self-check assertion (see above) caught this immediately on the first
+  real generation run, before it could reach a test file. Fixed by adding
+  an `allow_r9` flag, `False` for `r1_only` cells only.
 - (Phase 0) Repo scaffolded fresh; no PRD.md present yet — following the
   kickoff message as the spec of record until PRD.md is added.
 - (Phase 0, verification pass) PRD.md appeared in the repo (added via a

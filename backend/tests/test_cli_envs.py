@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from skillforge.cli.main import main
+from skillforge.core.settings import get_settings
+from skillforge.db.database import Database
+from skillforge.envs.ecommerce.persistence import count_tasks_by_split, get_or_create_environment
 
 
 def _fresh_db_env(tmp_path, monkeypatch):
@@ -10,17 +13,20 @@ def _fresh_db_env(tmp_path, monkeypatch):
 
 
 def test_envs_generate_then_stats(tmp_path, monkeypatch, capsys):
+    # Uses the default n (1400): the Phase 1.1 targets (decision
+    # distribution, interaction share, R1-only cap, per-rule minimums) are
+    # only guaranteed at that size — see generator.py's module docstring.
     _fresh_db_env(tmp_path, monkeypatch)
 
-    exit_code = main(["envs", "generate", "--env", "ecommerce", "--seed", "42", "--n", "300"])
+    exit_code = main(["envs", "generate", "--env", "ecommerce", "--seed", "42"])
     assert exit_code == 0
     generate_out = capsys.readouterr().out
-    assert "generated 300 tasks" in generate_out
+    assert "generated 1400 tasks" in generate_out
 
     exit_code = main(["envs", "stats"])
-    assert exit_code == 0
     stats_out = capsys.readouterr().out
-    assert "MISSING" not in stats_out
+    assert exit_code == 0, stats_out
+    assert "FAILED" not in stats_out
     for i in range(1, 11):
         assert f"R{i}" in stats_out
 
@@ -28,18 +34,17 @@ def test_envs_generate_then_stats(tmp_path, monkeypatch, capsys):
 def test_envs_generate_is_idempotent_per_seed(tmp_path, monkeypatch, capsys):
     _fresh_db_env(tmp_path, monkeypatch)
 
-    main(["envs", "generate", "--env", "ecommerce", "--seed", "42", "--n", "300"])
+    main(["envs", "generate", "--env", "ecommerce", "--seed", "42"])
     capsys.readouterr()
-    main(["envs", "generate", "--env", "ecommerce", "--seed", "42", "--n", "300"])
+    main(["envs", "generate", "--env", "ecommerce", "--seed", "42"])
     capsys.readouterr()
 
-    main(["envs", "stats"])
-    stats_out = capsys.readouterr().out
-    # total across all three splits should still be exactly 300, not 600
-    split_names = ("train", "validation", "test")
-    lines = [line for line in stats_out.splitlines() if line.split() and line.split()[0] in split_names]
-    total = sum(int(line.split()[1]) for line in lines)
-    assert total == 300
+    # total across all three splits should still be exactly 1400, not 2800
+    db = Database(get_settings().database_url)
+    with db.session() as session:
+        env_row = get_or_create_environment(session)
+        counts = count_tasks_by_split(session, env_row.id)
+    assert sum(counts.values()) == 1400
 
 
 def test_envs_run_agent_oracle_is_perfect(tmp_path, monkeypatch, capsys):

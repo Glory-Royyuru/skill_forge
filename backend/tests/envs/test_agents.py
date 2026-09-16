@@ -51,13 +51,23 @@ def test_random_agent_scores_far_below_oracle():
     assert successes < len(tasks) * 0.1
 
 
-def test_random_agent_never_produces_a_critical_error_by_accident_at_this_seed():
-    # RandomAgent can never target the right order id at all (see
-    # environment's order_id_mismatch guard), so it should not be able to
-    # accidentally issue money. This locks in that structural guarantee.
+def test_random_agent_produces_mostly_wrong_order_errors():
+    # Phase 1.1: a terminal action on the wrong order now executes and
+    # ends the episode (see environment.py), rather than being refused and
+    # retried. RandomAgent essentially never guesses the real order id, so
+    # its first successful terminal call — which is likely within a few
+    # of its 15 steps, since 3 of the 8 tools are terminal — ends the
+    # episode as `wrong_order`. This replaces the old (Phase 1) assumption
+    # that RandomAgent could never be critical: a wrong-order
+    # process_refund now legitimately *is* critical (money issued against
+    # the wrong order).
     tasks = generate_tasks(seed=42, n=200)
     agent = RandomAgent(seed=0)
+    error_types: dict[str, int] = {}
     for task in tasks:
         env = EcommerceRefundEnvironment()
         result, _trajectory = run_episode(env, task, agent)
-        assert result.critical is False
+        if result.error_type:
+            error_types[result.error_type] = error_types.get(result.error_type, 0) + 1
+
+    assert error_types.get("wrong_order", 0) > 0

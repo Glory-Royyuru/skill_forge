@@ -13,10 +13,19 @@ from skillforge.db.database import Database
 from skillforge.db.models import Environment as DBEnvironment
 from skillforge.envs.agents import RandomAgent, run_episode
 from skillforge.envs.ecommerce.environment import EcommerceRefundEnvironment
-from skillforge.envs.ecommerce.generator import DEFAULT_N, generate_tasks
+from skillforge.envs.ecommerce.generator import (
+    BUCKET_TARGET_PCT,
+    DEFAULT_N,
+    DEFAULT_SPLIT_COUNTS,
+    INTERACTION_MIN_SHARE,
+    R1_ONLY_MAX_SHARE,
+    generate_tasks,
+    min_per_rule_at_default,
+)
 from skillforge.envs.ecommerce.oracle import OracleAgent
 from skillforge.envs.ecommerce.persistence import (
     count_by_split_and_rule,
+    count_decision_stats,
     count_tasks_by_split,
     get_or_create_environment,
     load_tasks,
@@ -25,6 +34,13 @@ from skillforge.envs.ecommerce.persistence import (
 
 ALL_RULES = [f"R{i}" for i in range(1, 11)]
 SPLITS = ["train", "validation", "test"]
+BUCKET_LABELS = {
+    "process_full": "process_full",
+    "process_adjusted": "process_adj",
+    "reject": "reject",
+    "escalate": "escalate",
+}
+TOLERANCE = 0.05
 
 
 def cmd_envs_generate(args: argparse.Namespace) -> int:
@@ -63,23 +79,93 @@ def cmd_envs_stats(args: argparse.Namespace) -> int:
             return 1
         totals = count_tasks_by_split(session, env_row.id)
         rule_counts = count_by_split_and_rule(session, env_row.id)
+        decision_stats = count_decision_stats(session, env_row.id)
 
+    violations: list[str] = []
+
+    # -- Per-split rule counts ------------------------------------------------
+    print("rule coverage")
     header = "split".ljust(12) + "total".rjust(7) + "".join(r.rjust(6) for r in ALL_RULES)
     print(header)
-    missing: list[tuple[str, str]] = []
     for split in SPLITS:
         total = totals.get(split, 0)
         counts = rule_counts.get(split, {})
         row = split.ljust(12) + str(total).rjust(7)
+        # The 60/20/20 minimums are only a spec'd guarantee "at the default
+        # size" (220); scaled proportionally for any other persisted size,
+        # same as generate_tasks()'s own internal check.
+        min_required = min_per_rule_at_default(split, total) if total else 0
         for rule in ALL_RULES:
             c = counts.get(rule, 0)
             row += str(c).rjust(6)
             if total > 0 and c == 0:
-                missing.append((split, rule))
+                violations.append(f"rule coverage: {split}/{rule} has zero tasks")
+            elif total > 0 and c < min_required:
+                violations.append(
+                    f"rule minimum: {split}/{rule} has {c} tasks, below the minimum of "
+                    f"{min_required} (scaled to this split's size {total} from the spec'd "
+                    f"minimum at the default size {DEFAULT_SPLIT_COUNTS[split]})"
+                )
+        print(row)
+    print()
+
+    # -- Decision distribution -------------------------------------------------
+    print(f"decision distribution (target +/- {TOLERANCE:.0%}: " + ", ".join(
+        f"{BUCKET_LABELS[b]}={pct:.0%}" for b, pct in BUCKET_TARGET_PCT.items()
+    ) + ")")
+    header = "split".ljust(12) + "total".rjust(7)
+    header += "".join(BUCKET_LABELS[b].rjust(20) for b in BUCKET_TARGET_PCT)
+    print(header)
+    for split in SPLITS:
+        stats = decision_stats.get(split, {})
+        total = stats.get("total", 0)
+        row = split.ljust(12) + str(total).rjust(7)
+        for bucket, target_pct in BUCKET_TARGET_PCT.items():
+            count = stats.get(bucket, 0)
+            pct = count / total if total else 0.0
+            row += f"{count} ({pct:.1%})".rjust(20)
+            if total > 0 and abs(pct - target_pct) > TOLERANCE:
+                violations.append(
+                    f"decision distribution: {split}/{bucket} is {pct:.1%}, "
+                    f"target {target_pct:.0%} +/- {TOLERANCE:.0%}"
+                )
+        print(row)
+    print()
+
+    # -- Interaction / R1-only shares ------------------------------------------
+    print(f"interaction / R1-only (targets: interaction >= {INTERACTION_MIN_SHARE:.0%}, "
+          f"r1_only <= {R1_ONLY_MAX_SHARE:.0%})")
+    header = "split".ljust(12) + "total".rjust(7) + "interaction".rjust(20) + "r1_only".rjust(20)
+    print(header)
+    for split in SPLITS:
+        stats = decision_stats.get(split, {})
+        total = stats.get("total", 0)
+        interaction = stats.get("interaction", 0)
+        r1_only = stats.get("r1_only", 0)
+        interaction_pct = interaction / total if total else 0.0
+        r1_only_pct = r1_only / total if total else 0.0
+        row = (
+            split.ljust(12)
+            + str(total).rjust(7)
+            + f"{interaction} ({interaction_pct:.1%})".rjust(20)
+            + f"{r1_only} ({r1_only_pct:.1%})".rjust(20)
+        )
+        if total > 0 and interaction_pct < INTERACTION_MIN_SHARE:
+            violations.append(
+                f"interaction share: {split} is {interaction_pct:.1%}, below the minimum of "
+                f"{INTERACTION_MIN_SHARE:.0%}"
+            )
+        if total > 0 and r1_only_pct > R1_ONLY_MAX_SHARE:
+            violations.append(
+                f"R1-only share: {split} is {r1_only_pct:.1%}, above the maximum of {R1_ONLY_MAX_SHARE:.0%}"
+            )
         print(row)
 
-    if missing:
-        print("MISSING rule coverage: " + ", ".join(f"{split}/{rule}" for split, rule in missing))
+    if violations:
+        print()
+        print(f"FAILED - {len(violations)} target violation(s):")
+        for v in violations:
+            print(f"  - {v}")
         return 1
     return 0
 

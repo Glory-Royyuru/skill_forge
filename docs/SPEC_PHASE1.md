@@ -90,3 +90,48 @@ Before coding: write a 3-5 bullet plan in PROGRESS.md under Phase 1. Then build:
 - OracleAgent on 200 tasks: must be 100%. If not, find and fix the bug in the policy function, evaluator, or oracle, then re-run — don't lower the bar.
 - RandomAgent on 200 tasks: report the score (should be low).
 - `envs stats`: every rule R1-R10 must appear in every split. If not, adjust the generator.
+
+---
+
+## Phase 1.1 amendments (fix pass after the Phase 1 gate)
+
+Phase 1 passed its gate, but `envs stats` on the real generated distribution
+surfaced problems that would have undermined Phase 2 (a static baseline
+scoring well mostly by memorizing a skewed task mix, not by understanding
+the policy). This fix pass, applied without changing the Environment
+Protocol or the core R1-R10 policy:
+
+**Evaluator — two new error types** (`evaluator.py`):
+- `wrong_order`: a terminal action on an `order_id` other than the task's
+  target now **ends the episode** (the environment no longer refuses/
+  retries it — see the `order_id_mismatch` replacement below) and is
+  classified `wrong_order`, critical iff the action was `process_refund`.
+- `wrong_reason_code`: correct decision type (reject/escalate) but the
+  wrong `reason_code` — score 0.5, never critical. This replaces what
+  Phase 1 had folded into `wrong_decision` for the same case.
+- `evaluate_attempt` gained a required `target_order_id` parameter.
+
+**Environment — `order_id_mismatch` removed** (`environment.py`):
+Phase 1's `_terminal_order_id_check` refused a terminal call on the wrong
+order (`ok=False`, non-terminal, agent could retry). Phase 1.1 replaces
+this: `_tool_process_refund`/`_tool_reject_refund`/`_tool_escalate` now
+execute unconditionally once schema-valid, `ok=True, terminal=True`,
+regardless of `order_id`. Correctness of the order is now purely an
+evaluator concern (`wrong_order` above), not something the environment
+gates on. See PROGRESS.md's Decisions log for the full reasoning.
+
+**Generator — stratified, not just recipe+random** (`generator.py`):
+Rewritten to hit, per split: decision-bucket distribution (process_full
+~25%, process_adjusted ~20%, reject ~30%, escalate ~25%, all ±5%),
+interaction share (2+ rules excluding R1/R9) >= 40%, R1-only share <= 20%,
+and per-rule minimums at the default size (n=1400: train >= 60/rule,
+validation/test >= 20/rule each). `DEFAULT_N` changed from 300 to 1400
+accordingly. Achieved by exact weighted allocation (not rejection
+sampling) across a menu of ~28 classified "cells", on top of the original
+18 recipes (still guaranteeing every boundary day/named interaction).
+Every task's `(request, initial_state)` is unique by construction (a
+single globally-incrementing index across all splits), verified by a
+dedicated test.
+
+**CLI — `envs stats` reports and enforces all of the above**, exiting
+non-zero with an itemized violation list if any target is missed.
