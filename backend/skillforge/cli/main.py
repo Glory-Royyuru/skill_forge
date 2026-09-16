@@ -11,6 +11,7 @@ import sys
 
 from sqlalchemy import text
 
+from skillforge.cli.envs_cmd import add_envs_subcommands
 from skillforge.core.settings import get_settings
 from skillforge.db.database import Database
 
@@ -42,6 +43,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     health_parser = subparsers.add_parser("health", help="Check settings and DB connectivity.")
     health_parser.set_defaults(func=cmd_health)
+
+    add_envs_subcommands(subparsers)
 
     return parser
 

@@ -11,6 +11,13 @@ measured on held-out tasks.
 
 - At the start of every session, read `PROGRESS.md`, and `PRD.md` if it
   exists in the repo root.
+- For Phase 1 specifically, `docs/SPEC_PHASE1.md` holds the Phase 1 kickoff
+  spec verbatim (environment interface, task generator, e-commerce refund
+  policy R1-R10, evaluator output shape, task list, and gate). Use it as
+  the source of truth for Phase 1 until `PRD.md` is added; once `PRD.md`
+  exists, **`PRD.md` wins** on any conflict (as of this note, PRD.md
+  Sections 6.2/6.3/7/12 are consistent with `docs/SPEC_PHASE1.md` — no
+  conflicts found).
 - Implement **only** the phase named in the user's latest message. Do not
   create code, folders, or stubs for later phases, even if they seem
   convenient or obviously needed later.
