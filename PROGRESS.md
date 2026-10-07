@@ -74,6 +74,35 @@
       - CLI (`envs generate|stats|run-agent`) persists into the existing
         `tasks` table (delete-then-reinsert per `(environment, seed)` for
         idempotency) and reports rule-coverage / oracle / random scores.
+- [x] **Teacher Agent pivot — ready for review (2026-10-07).** Product
+      direction changed to "SkillForge — Adaptive Teacher Agent" for the
+      submission: a deterministic DIAGNOSE → TEACH → ASSESS → ADAPT → REPORT
+      tutor, no LLM or external API. New `skillforge/teacher/`
+      (curriculum: 3 subjects × 3 topics × 6 questions; engine; store),
+      `api/teacher.py` (`/api/teacher/topics`, `/session/start`,
+      `/session/{id}`, `/session/{id}/answer`, `/session/{id}/report`,
+      `/progress`). Sessions persist as `TrainingSession` rows
+      (`condition="teacher"`); a 3-session sample history is seeded into an
+      empty DB on startup (`TEACHER_SEED_DEMO`). Frontend rebuilt around
+      the Teacher (old e-commerce pages kept, unrouted). E-commerce
+      env/evaluator/API untouched.
+      Gate: 182/182 tests pass, ruff clean, `npm run build` succeeds, full
+      session flow verified end-to-end in headless Edge with no console
+      errors. Phases 2–9 below remain as originally planned and are not
+      affected by this work.
+- [x] **Teacher Agent final polish — done (2026-10-07).** No pre-existing
+      ML subsystem was found (no model code, artifacts, or ML packages), so
+      a pluggable `LearnerModel` interface was added with a pure-Python
+      Bayesian Knowledge Tracing implementation (`teacher/learner_model.py`,
+      `TEACHER_LEARNER_MODEL=bkt|none`). It targets the least-known concept,
+      confirms probable guesses, and carries concept estimates across
+      sessions; difficulty, grading, mastery, and reports stay
+      deterministic. Added misconception-specific feedback for the Decision
+      Trees questions and per-topic difficulty levels. Frontend redesigned
+      (ivory/charcoal/navy editorial system, animated knowledge-map hero,
+      staged assess→adapt transitions, adaptation trace, learner-model
+      panel). Gate: 191/191 tests pass, ruff clean, build passes, full
+      browser flow verified at 1440/1100/820px with no console errors.
 - [ ] **Phase 2.** Learner tool-calling loop; baselines A (no training) and
       B (static skill); batch CLI.
       Gate: real run works; baseline B below ~85% or difficulty is

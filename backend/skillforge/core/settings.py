@@ -45,6 +45,14 @@ class Settings(BaseSettings):
     # --- LLM response cache ---------------------------------------------
     llm_cache_enabled: bool = Field(default=True)
 
+    # --- Teacher Agent demo ---------------------------------------------
+    # Seed a small sample learning history into an empty database on
+    # startup so the dashboard isn't blank on first launch.
+    teacher_seed_demo: bool = Field(default=True)
+    # Offline learner model used as a supporting signal by the Teacher:
+    # "bkt" (Bayesian Knowledge Tracing) or "none" to disable it.
+    teacher_learner_model: str = Field(default="bkt")
+
 
 def get_settings() -> Settings:
     """Return a freshly-loaded Settings instance.

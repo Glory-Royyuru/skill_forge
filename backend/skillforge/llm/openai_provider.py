@@ -12,6 +12,7 @@ import time
 from typing import Any
 
 from skillforge.llm.base import LLMProvider
+from skillforge.llm.retry import call_with_retry
 from skillforge.llm.types import LLMResponse, Message, TokenUsage, ToolCall, ToolSpec
 
 
@@ -22,13 +23,19 @@ class OpenAIProvider(LLMProvider):
         if not api_key:
             raise ValueError("OpenAIProvider requires an API key.")
         try:
-            from openai import OpenAI
+            import openai
         except ImportError as exc:  # pragma: no cover - exercised only without the dep installed
             raise ImportError(
                 "The 'openai' package is required to use OpenAIProvider."
             ) from exc
-        self._client = OpenAI(api_key=api_key)
+        self._client = openai.OpenAI(api_key=api_key)
         self._default_model = default_model
+        self._retryable = (
+            openai.RateLimitError,
+            openai.APIConnectionError,
+            openai.APITimeoutError,
+            openai.InternalServerError,
+        )
 
     def complete(
         self,
@@ -50,7 +57,7 @@ class OpenAIProvider(LLMProvider):
             kwargs["tools"] = [_to_openai_tool(t) for t in tools]
 
         start = time.perf_counter()
-        response = self._client.chat.completions.create(**kwargs)
+        response = call_with_retry(lambda: self._client.chat.completions.create(**kwargs), self._retryable)
         latency_ms = (time.perf_counter() - start) * 1000
 
         choice = response.choices[0]
@@ -79,6 +86,19 @@ class OpenAIProvider(LLMProvider):
 
 
 def _to_openai_message(message: Message) -> dict:
+    if message.role == "assistant" and message.tool_calls:
+        return {
+            "role": "assistant",
+            "content": message.content or None,
+            "tool_calls": [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
+                }
+                for tc in message.tool_calls
+            ],
+        }
     payload: dict[str, Any] = {"role": message.role, "content": message.content}
     if message.role == "tool":
         payload["tool_call_id"] = message.tool_call_id

@@ -1,0 +1,35 @@
+{
+  "name": "Customer Refund Processing",
+  "goal": "Resolve a customer's refund request with the correct terminal action (process_refund, reject_refund, or escalate) and correct parameters.",
+  "preconditions": [
+    "A refund request references an order, identified by order id or searchable details.",
+    "The order's system delivery record, customer profile, and refund history may need to be looked up via tools before deciding."
+  ],
+  "procedure": [
+    "Locate the order (search_orders/view_order) using the order id or details in the request.",
+    "Look up the customer profile (view_customer) to check VIP status.",
+    "Look up refund history (view_order_history) to check for frequent refunds.",
+    "Determine the applicable return window and whether the order is eligible.",
+    "Compute the correct amount and method if a refund should be issued.",
+    "Take exactly one terminal action: process_refund, reject_refund, or escalate, with the correct parameters."
+  ],
+  "rules": [
+    {"id": "R1", "when": "order is not final sale", "then": "eligible if days_since_delivery <= 30"},
+    {"id": "R2", "when": "item condition is damaged/defective", "then": "window extends to 60 days instead of 30"},
+    {"id": "R3", "when": "customer is VIP", "then": "add 15 days to whichever window (standard or damaged) applies"},
+    {"id": "R4", "when": "order is final sale", "then": "not refundable, except damaged-on-arrival reported within 7 days"},
+    {"id": "R5", "when": "electronics, opened, not damaged", "then": "refund 85% of item price instead of full price"},
+    {"id": "R6", "when": "order is a gift", "then": "refund as store_credit, never original_payment"},
+    {"id": "R7", "when": "refund amount (after adjustments) exceeds $500", "then": "escalate instead of processing"},
+    {"id": "R8", "when": "order was already refunded", "then": "reject with reason_code already_refunded"},
+    {"id": "R9", "when": "customer's claimed delivery date conflicts with the system record", "then": "always use the system record, never the customer's claim"},
+    {"id": "R10", "when": "customer has 3+ refunds in the last 90 days", "then": "escalate instead of processing"}
+  ],
+  "exceptions": [
+    {"id": "E1", "when": "final sale AND damaged AND days_since_delivery <= 7", "then": "eligible for a refund despite being final sale"},
+    {"id": "E2", "when": "VIP bonus and the final-sale 7-day exception both could apply", "then": "the VIP +15 day bonus does NOT extend the final-sale 7-day exception window"},
+    {"id": "E3", "when": "item is damaged", "then": "the 85% opened-electronics adjustment (R5) never applies — damaged items always refund in full"}
+  ],
+  "open_questions": [],
+  "confidence": {"R1": 0.95, "R2": 0.95, "R3": 0.9, "R4": 0.9, "R5": 0.9, "R6": 0.95, "R7": 0.9, "R8": 0.95, "R9": 0.9, "R10": 0.9}
+}

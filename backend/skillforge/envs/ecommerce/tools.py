@@ -11,9 +11,21 @@ that the tool itself should be crippled or removed.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from skillforge.llm.types import ToolSpec
+
+POLICY_DOCS_DIR = Path(__file__).parent / "policy_docs"
+POLICY_DOC_VERSION = "v1"
+
+
+def load_policy_document(version: str = POLICY_DOC_VERSION) -> str:
+    """The full, realistic customer-facing policy document (prose, not a
+    rule list) — served by `view_policy(section="full")` and by the
+    `/api/policy` endpoint for the frontend's policy viewer.
+    """
+    return (POLICY_DOCS_DIR / f"{version}.md").read_text(encoding="utf-8")
 
 TERMINAL_TOOLS = {"process_refund", "reject_refund", "escalate"}
 
@@ -118,6 +130,7 @@ POLICY_SECTIONS: dict[str, str] = {
     "frequent_refunds": (
         "Customers with 3 or more refunds in the last 90 days must be escalated for manual review."
     ),
+    "full": load_policy_document(),
 }
 
 

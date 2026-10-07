@@ -12,6 +12,7 @@ import sys
 from sqlalchemy import text
 
 from skillforge.cli.envs_cmd import add_envs_subcommands
+from skillforge.cli.run_cmd import add_run_subcommands
 from skillforge.core.settings import get_settings
 from skillforge.db.database import Database
 
@@ -45,6 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     health_parser.set_defaults(func=cmd_health)
 
     add_envs_subcommands(subparsers)
+    add_run_subcommands(subparsers)
 
     return parser
 

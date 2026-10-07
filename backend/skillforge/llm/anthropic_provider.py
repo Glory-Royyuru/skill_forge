@@ -11,6 +11,7 @@ import time
 from typing import Any
 
 from skillforge.llm.base import LLMProvider
+from skillforge.llm.retry import call_with_retry
 from skillforge.llm.types import LLMResponse, Message, TokenUsage, ToolCall, ToolSpec
 
 _ANTHROPIC_MAX_TOKENS_DEFAULT = 4096
@@ -23,13 +24,19 @@ class AnthropicProvider(LLMProvider):
         if not api_key:
             raise ValueError("AnthropicProvider requires an API key.")
         try:
-            from anthropic import Anthropic
+            import anthropic
         except ImportError as exc:  # pragma: no cover - exercised only without the dep installed
             raise ImportError(
                 "The 'anthropic' package is required to use AnthropicProvider."
             ) from exc
-        self._client = Anthropic(api_key=api_key)
+        self._client = anthropic.Anthropic(api_key=api_key)
         self._default_model = default_model
+        self._retryable = (
+            anthropic.RateLimitError,
+            anthropic.APIConnectionError,
+            anthropic.APITimeoutError,
+            anthropic.InternalServerError,
+        )
 
     def complete(
         self,
@@ -39,8 +46,9 @@ class AnthropicProvider(LLMProvider):
         temperature: float = 0.0,
         seed: int | None = None,
     ) -> LLMResponse:
+        del seed  # Anthropic's Messages API has no `seed` parameter.
         resolved_model = model or self._default_model
-        system, converted = _split_system(messages)
+        system, converted = _to_anthropic_messages(messages)
         kwargs: dict[str, Any] = {
             "model": resolved_model,
             "max_tokens": _ANTHROPIC_MAX_TOKENS_DEFAULT,
@@ -51,11 +59,9 @@ class AnthropicProvider(LLMProvider):
             kwargs["system"] = system
         if tools:
             kwargs["tools"] = [_to_anthropic_tool(t) for t in tools]
-        # Note: Anthropic's Messages API has no `seed` parameter (unlike
-        # OpenAI's); it is accepted here for interface parity but ignored.
 
         start = time.perf_counter()
-        response = self._client.messages.create(**kwargs)
+        response = call_with_retry(lambda: self._client.messages.create(**kwargs), self._retryable)
         latency_ms = (time.perf_counter() - start) * 1000
 
         text_parts: list[str] = []
@@ -82,17 +88,48 @@ class AnthropicProvider(LLMProvider):
         )
 
 
-def _split_system(messages: list[Message]) -> tuple[str | None, list[dict]]:
+def _to_anthropic_messages(messages: list[Message]) -> tuple[str | None, list[dict]]:
+    """Full tool_use/tool_result round-trip, not just role renaming:
+    - assistant messages with `tool_calls` become text + tool_use blocks.
+    - consecutive role="tool" messages (multiple results for one assistant
+      turn — i.e. multiple tool calls in one turn) are batched into a
+      single user message with multiple tool_result blocks, since that's
+      what the Messages API requires.
+    """
     system_parts = [m.content for m in messages if m.role == "system"]
     system = "\n".join(system_parts) if system_parts else None
-    converted = []
-    for m in messages:
-        if m.role == "system":
+    non_system = [m for m in messages if m.role != "system"]
+
+    converted: list[dict] = []
+    i = 0
+    while i < len(non_system):
+        m = non_system[i]
+        if m.role == "tool":
+            block_group = []
+            while i < len(non_system) and non_system[i].role == "tool":
+                tm = non_system[i]
+                block: dict[str, Any] = {
+                    "type": "tool_result",
+                    "tool_use_id": tm.tool_call_id,
+                    "content": tm.content,
+                }
+                if tm.is_error:
+                    block["is_error"] = True
+                block_group.append(block)
+                i += 1
+            converted.append({"role": "user", "content": block_group})
             continue
-        # Anthropic has no "tool" role message shape identical to OpenAI's;
-        # a fuller tool-result mapping lands with the Phase 2 learner loop.
-        role = "user" if m.role == "tool" else m.role
-        converted.append({"role": role, "content": m.content})
+        if m.role == "assistant" and m.tool_calls:
+            content: list[dict] = []
+            if m.content:
+                content.append({"type": "text", "text": m.content})
+            for tc in m.tool_calls:
+                content.append({"type": "tool_use", "id": tc.id, "name": tc.name, "input": tc.arguments})
+            converted.append({"role": "assistant", "content": content})
+            i += 1
+            continue
+        converted.append({"role": m.role, "content": m.content})
+        i += 1
     return system, converted
 
 

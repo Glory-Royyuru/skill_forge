@@ -15,6 +15,13 @@ class Message:
     # Populated on role="tool" replies, echoing the tool_call this answers.
     tool_call_id: str | None = None
     name: str | None = None
+    # role="tool": marks this result as an error (maps to Anthropic's
+    # tool_result.is_error; OpenAI has no equivalent field, so the error is
+    # conveyed via `content` text only for that provider).
+    is_error: bool = False
+    # role="assistant": tool calls the model made this turn, so a later
+    # `complete()` call can replay full history to either provider.
+    tool_calls: list[ToolCall] | None = None
 
 
 @dataclass
