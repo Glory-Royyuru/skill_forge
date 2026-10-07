@@ -173,19 +173,60 @@ def test_adaptation_message_matches_next_question_for_every_answer_pattern():
     from skillforge.teacher.curriculum import topic_ids
 
     for topic_id in topic_ids():
+        _, topic = get_topic(topic_id)
         for pattern in itertools.product([True, False], repeat=engine.QUESTIONS_PER_SESSION):
             state = engine.start_session(topic_id)
             for ok in pattern:
-                asked_level = get_question(topic_id, state["current_question_id"])["difficulty"]
+                asked = get_question(topic_id, state["current_question_id"])
                 fb = _answer(state, ok)
                 if fb["is_last"]:
                     break
-                nxt = get_question(topic_id, state["current_question_id"])["difficulty"]
-                assert fb["adaptation"]["to_level"] == nxt == state["level"]
-                expected = "up" if nxt > asked_level else "down" if nxt < asked_level else "hold"
+                nq = get_question(topic_id, state["current_question_id"])
+                assert fb["adaptation"]["to_level"] == nq["difficulty"] == state["level"]
+                expected = (
+                    "up" if nq["difficulty"] > asked["difficulty"]
+                    else "down" if nq["difficulty"] < asked["difficulty"] else "hold"
+                )
                 assert fb["adaptation"]["direction"] == expected
+                assert fb["next_concept_name"] == topic["concepts"][nq["concept"]]["name"]
+                same = nq["concept"] == asked["concept"]
+                if not ok:
+                    # Remediation: the missed concept is chosen whenever an unasked
+                    # question on it exists at the same or an easier level.
+                    available = [
+                        q for q in topic["questions"]
+                        if q["concept"] == asked["concept"]
+                        and q["difficulty"] <= asked["difficulty"]
+                        and (q["id"] not in state["asked"] or q["id"] == nq["id"])
+                    ]
+                    if available:
+                        assert same and nq["difficulty"] <= asked["difficulty"]
+                    # The teacher only claims to reinforce when it really does.
+                    claims = any(w in fb["transition"] for w in ("reinforce", "this idea", "same idea"))
+                    assert claims == same
                 if expected == "down":
-                    assert ("consolidate" if fb["correct"] else "simpler") in fb["transition"]
-                if expected == "up":
-                    assert ("deeper" if fb["correct"] else "challenging") in fb["transition"]
+                    assert ("consolidate" if ok else "simpler") in fb["transition"]
+                if expected == "up" and ok:
+                    assert "deeper" in fb["transition"]
             assert state["status"] == "completed"
+
+
+def test_missed_concept_is_revisited_when_an_easier_or_equal_question_exists():
+    # bs-1 (precondition) correct -> bs-3 (complexity, L2); missing bs-3 must
+    # bring back the other complexity question (bs-4, L2), not a new concept.
+    state = engine.start_session("binary-search", learner_model=None)
+    _answer(state, True)
+    missed = get_question("binary-search", state["current_question_id"])
+    fb = _answer(state, False)
+    nxt = get_question("binary-search", state["current_question_id"])
+    assert nxt["concept"] == missed["concept"]
+    assert nxt["difficulty"] <= missed["difficulty"]
+    assert "reinforce" in fb["transition"]
+    assert fb["next_concept_name"] == "Logarithmic complexity"
+
+
+def test_concept_names_keep_acronyms_mid_sentence():
+    assert engine._lc("LIFO principle") == "LIFO principle"
+    assert engine._lc("Object-Oriented Programming") == "object-oriented programming"
+    view = engine.session_view(engine.start_session("stacks", learner_model=None))
+    assert "LIFO principle" in view["teacher_status"]

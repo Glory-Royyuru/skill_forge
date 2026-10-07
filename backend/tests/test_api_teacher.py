@@ -119,3 +119,9 @@ def test_demo_seed_populates_history_once(tmp_path):
     # Re-creating the app on the same DB doesn't seed again.
     client2 = _client(tmp_path, seed_demo=True)
     assert client2.get("/api/teacher/progress").json()["sessions_completed"] == 3
+
+
+def test_topics_report_session_length(tmp_path):
+    body = _client(tmp_path).get("/api/teacher/topics").json()
+    lengths = {t["session_length"] for s in body["subjects"] for t in s["topics"]}
+    assert lengths == {5}

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import { ErrorState, Icon, LevelMeter, Loading, useCountUp } from "../components/ui.jsx";
-import { navigate, pct } from "../lib/router.js";
+import { STATUS_LABELS, navigate, pct } from "../lib/router.js";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"];
 const LOOP = ["diagnose", "teach", "assess", "adapt", "report"];
@@ -53,14 +53,17 @@ function statusFor(phase, session, feedback, steps, stepIdx) {
   if (phase === "evaluating") return steps[Math.min(stepIdx, steps.length - 1)];
   if (phase === "feedback" && feedback) {
     if (feedback.is_last) return "Preparing your learning report";
-    const t = feedback.learner_model?.targeting;
-    if (!feedback.correct || t === "confirm") return "Reinforcing this concept";
+    // Only claim reinforcement when the next question really revisits the
+    // concept just missed (or a probable guess the learner model wants to confirm).
+    const same = feedback.next_concept_name === feedback.concept_name;
+    if (same && (!feedback.correct || feedback.learner_model?.targeting === "confirm"))
+      return "Reinforcing this concept";
     if (feedback.adaptation.direction === "up") return "Preparing the next challenge";
     return "Adjusting difficulty";
   }
   if (session.answered === 0) return "Diagnosing your starting point";
-  const last = session.results[session.results.length - 1];
-  return last && last !== "correct" ? "Reinforcing this concept" : "Assessing understanding";
+  // The backend's status already knows whether this question revisits a missed concept.
+  return session.teacher_status.startsWith("Reinforcing") ? "Reinforcing this concept" : "Assessing understanding";
 }
 
 export default function Session({ id }) {
@@ -192,7 +195,6 @@ export default function Session({ id }) {
         : session.answered === 0
           ? "teach"
           : "assess";
-  const answeredShown = phase === "feedback" ? session.answered : session.answered;
   const qNumber = phase === "feedback" ? session.answered : session.answered + 1;
   const delta = feedback ? Math.round((feedback.mastery_after - feedback.mastery_before) * 100) : 0;
   const lm = session.learner_model;
@@ -227,7 +229,7 @@ export default function Session({ id }) {
                 <div className="teacher-name">Teacher Agent</div>
                 <div className="lesson-progress">
                   <span className="muted small">
-                    Lesson progress · {answeredShown} of {session.max_questions}
+                    Lesson progress · {session.answered} of {session.max_questions}
                   </span>
                   <Segments session={session} current={phase === "answering" ? session.answered : -1} />
                 </div>
@@ -373,11 +375,11 @@ export default function Session({ id }) {
                             )}
                           </span>
                         </li>
-                        {feedback.learner_model?.next_concept_name && (
+                        {feedback.next_concept_name && (
                           <li style={{ animationDelay: "400ms" }}>
                             <span className="trace-k">Targeting</span>
                             <span className="trace-v">
-                              <Icon name="target" size={13} /> {feedback.learner_model.next_concept_name}
+                              <Icon name="target" size={13} /> {feedback.next_concept_name}
                             </span>
                           </li>
                         )}
@@ -441,7 +443,9 @@ export default function Session({ id }) {
               <ul className="concept-list">
                 {session.concepts.map((c) => (
                   <li key={c.id} className={`cl-${c.status}`}>
-                    <span className="concept-mark">{CONCEPT_MARK[c.status]}</span>
+                    <span className="concept-mark" role="img" aria-label={STATUS_LABELS[c.status]} title={STATUS_LABELS[c.status]}>
+                      {CONCEPT_MARK[c.status]}
+                    </span>
                     <span className="concept-body">
                       <span className="concept-name">{c.name}</span>
                       {c.estimate != null && (
@@ -470,6 +474,7 @@ export default function Session({ id }) {
                   </span>
                   <span className="muted small">{lm.label}</span>
                 </div>
+                <div className="lm-sub muted small">Runs offline with configured parameters; not a trained model.</div>
                 {phase === "feedback" && feedback?.learner_model ? (
                   <p className="lm-text">
                     {feedback.learner_model.concept_name}:{" "}

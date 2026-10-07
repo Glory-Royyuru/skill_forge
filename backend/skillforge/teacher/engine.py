@@ -79,6 +79,12 @@ def _knowledge(state: dict) -> dict[str, float] | None:
     return lm["knowledge"] if lm else None
 
 
+def _lc(name: str) -> str:
+    """Lower-case a concept/topic name for use mid-sentence, leaving acronyms
+    ("LIFO principle", "OOP") intact."""
+    return " ".join(w if w[:2].isupper() else w.lower() for w in name.split(" "))
+
+
 def _log(state: dict, stage: str, text: str) -> None:
     state["log"].append({"stage": stage, "text": text})
 
@@ -117,13 +123,22 @@ def band(mastery: float) -> str:
 # --- Question selection ------------------------------------------------------
 
 
-def _pick_next(state: dict, topic: dict, reinforce_concept: str | None, prefer_harder: bool) -> dict | None:
+def _pick_next(
+    state: dict,
+    topic: dict,
+    reinforce_concept: str | None,
+    prefer_harder: bool,
+    remediate_up_to: int | None = None,
+) -> dict | None:
     """Choose the next unasked question for the current level.
 
-    Ordering: closest difficulty to the target level; on ties, harder after a
-    correct answer and easier after a miss; then the concept to reinforce (if
-    any); otherwise the concept the learner model considers least known (or,
-    with no learner model, the least-practiced concept); then bank order.
+    Remediation first: after a miss (`remediate_up_to` set), an unasked
+    question on the missed concept at that difficulty or easier wins, closest
+    to the target level. Otherwise: closest difficulty to the target level;
+    on ties, harder after a correct answer and easier after a miss; then the
+    concept to reinforce (if any); otherwise the concept the learner model
+    considers least known (or, with no learner model, the least-practiced
+    concept); then bank order.
     """
     asked = set(state["asked"])
     remaining = [(i, q) for i, q in enumerate(topic["questions"]) if q["id"] not in asked]
@@ -131,6 +146,16 @@ def _pick_next(state: dict, topic: dict, reinforce_concept: str | None, prefer_h
         return None
     target = state["level"]
     knowledge = _knowledge(state)
+
+    if reinforce_concept is not None and remediate_up_to is not None:
+        same = [
+            (i, q) for i, q in remaining
+            if q["concept"] == reinforce_concept and q["difficulty"] <= remediate_up_to
+        ]
+        if same:
+            return min(same, key=lambda it: (abs(it[1]["difficulty"] - target), it[1]["difficulty"], it[0]))[
+                1
+            ]
 
     def key(item: tuple[int, dict]) -> tuple:
         i, q = item
@@ -259,7 +284,6 @@ def submit_answer(state: dict, question_id: str, choice: int) -> dict:
     if correct:
         record["correct"] += 1
         record["best_level"] = max(record["best_level"], q["difficulty"])
-    if correct:
         verdict = "correct"
     elif missed_before >= 1:
         verdict = "needs_review"
@@ -308,34 +332,48 @@ def submit_answer(state: dict, question_id: str, choice: int) -> dict:
     is_last = len(state["answers"]) >= state["max_questions"]
     next_q = None
     if not is_last:
-        next_q = _pick_next(state, topic, reinforce_concept=reinforce, prefer_harder=correct)
+        next_q = _pick_next(
+            state, topic, reinforce_concept=reinforce, prefer_harder=correct,
+            remediate_up_to=None if correct else from_level,
+        )
         is_last = next_q is None
     to_level = next_q["difficulty"] if next_q is not None else state["level"]
     state["level"] = to_level
+    same_concept = next_q is not None and next_q["concept"] == concept
 
     if is_last:
         transition = "That completes this session. I'll put together your learning report."
         direction = "complete"
     elif to_level > from_level:
         direction = "up"
-        if confirm and next_q["concept"] == concept:
+        if confirm and same_concept:
             transition = "Let's move one level deeper on the same idea to make sure it's secure."
         elif correct:
             transition = "Let's move one level deeper."
-        else:
+        elif same_concept:
             transition = "Let's look at this idea from a more challenging angle."
+        else:
+            transition = "Let's move on to a different concept at the next level."
     elif to_level < from_level:
         direction = "down"
-        transition = ("Let's reinforce that distinction with a simpler question." if not correct
-                      else "Let's consolidate with a related question.")
+        if correct:
+            transition = "Let's consolidate with a related question."
+        elif same_concept:
+            transition = "Let's reinforce that distinction with a simpler question."
+        else:
+            transition = "Let's step back to a simpler question."
     elif correct:
         direction = "hold"
         transition = ("You're already at the advanced level, so let's keep the challenge high."
                       if to_level == MAX_LEVEL else "Let's consolidate at this level with another question.")
     else:
         direction = "hold"
-        transition = ("Let's try another foundational question to reinforce it." if to_level == 1
-                      else "Let's try another question at this level to reinforce it.")
+        if same_concept:
+            transition = "Let's try another question on this idea to reinforce it."
+        elif to_level == 1:
+            transition = "Let's try another foundational question."
+        else:
+            transition = "Let's try another question at this level."
 
     if direction == "complete":
         _log(state, "adapt", "Question budget reached. Moving to the report.")
@@ -376,16 +414,16 @@ def submit_answer(state: dict, question_id: str, choice: int) -> dict:
         headline = _PRAISE[(number - 1) % len(_PRAISE)]
         message = [f"You chose “{chosen_text}”. {q['explanation']}"]
         if missed_before >= 1:
-            message.append(f"Good recovery — {concept_name.lower()} tripped you up earlier, and this time "
+            message.append(f"Good recovery — {_lc(concept_name)} tripped you up earlier, and this time "
                            "you got it.")
         else:
-            message.append(f"That tells me you have a working grasp of {concept_name.lower()}.")
+            message.append(f"That tells me you have a working grasp of {_lc(concept_name)}.")
     elif verdict == "needs_review":
         headline = "Needs review."
         reteach = topic["concepts"][concept]["reteach"]
         message = [
             f"You chose “{chosen_text}”, but the answer is “{correct_text}”. {q['explanation']}",
-            f"This is the second time {concept_name.lower()} has caused trouble, so I'm marking it for "
+            f"This is the second time {_lc(concept_name)} has caused trouble, so I'm marking it for "
             "review. Here's the key idea again:",
         ]
     else:
@@ -415,6 +453,7 @@ def submit_answer(state: dict, question_id: str, choice: int) -> dict:
             "from_label": LEVEL_NAMES[from_level],
             "to_label": LEVEL_NAMES[to_level],
         },
+        "next_concept_name": topic["concepts"][next_q["concept"]]["name"] if next_q is not None else None,
         "learner_model": lm_feedback,
         "mastery_before": mastery_before,
         "mastery_after": state["mastery"],
@@ -449,11 +488,11 @@ def teacher_status(state: dict, topic: dict) -> str:
     q = _question(topic, state["current_question_id"])
     concept = topic["concepts"][q["concept"]]["name"]
     if not state["answers"]:
-        return f"Diagnosing your starting point with a baseline question on {concept.lower()}."
+        return f"Diagnosing your starting point with a baseline question on {_lc(concept)}."
     last = state["answers"][-1]
     if not last["correct"] and last["concept"] == q["concept"]:
-        return f"Reinforcing {concept.lower()} at the {LEVEL_NAMES[q['difficulty']]} level."
-    return f"Assessing {concept.lower()} at the {LEVEL_NAMES[q['difficulty']]} level."
+        return f"Reinforcing {_lc(concept)} at the {LEVEL_NAMES[q['difficulty']]} level."
+    return f"Assessing {_lc(concept)} at the {LEVEL_NAMES[q['difficulty']]} level."
 
 
 def session_view(state: dict) -> dict:
@@ -541,15 +580,15 @@ def build_report(state: dict) -> dict:
 
     if action == "advance":
         headline = f"Ready to move on to {next_topic['title']}"
-        text = (f"You've shown solid command of {topic['title'].lower()}, including at the "
+        text = (f"You've shown solid command of {_lc(topic['title'])}, including at the "
                 f"{LEVEL_NAMES[max(highest, 1)]} level. Build on it with {next_topic['title']}.")
     elif action == "practice":
-        focus = f" Keep an eye on {', '.join(n.lower() for n in developing)}." if developing else ""
+        focus = f" Keep an eye on {', '.join(_lc(n) for n in developing)}." if developing else ""
         headline = f"Continue to {next_topic['title']}, with a quick review first"
-        text = (f"You have a reasonable foundation in {topic['title'].lower()} but haven't fully secured it."
+        text = (f"You have a reasonable foundation in {_lc(topic['title'])} but haven't fully secured it."
                 f"{focus} Re-read the key points, then continue with {next_topic['title']}.")
     else:
-        focus = ", ".join(n.lower() for n in weak) if weak else "the core concepts"
+        focus = ", ".join(_lc(n) for n in weak) if weak else "the core concepts"
         headline = f"Revisit {topic['title']} before moving on"
         text = (f"Spend a little more time on {focus}. Re-read the lesson, then retake this session — "
                 "I'll start you at the foundational level again.")
@@ -617,7 +656,7 @@ def build_report(state: dict) -> dict:
 
 
 def _join(names: list[str], capitalize: bool = False) -> str:
-    items = [n.lower() for n in names]
+    items = [_lc(n) for n in names]
     if capitalize and items:
         items[0] = items[0][0].upper() + items[0][1:]
     if len(items) <= 1:

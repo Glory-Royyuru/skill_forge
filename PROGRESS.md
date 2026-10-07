@@ -103,6 +103,22 @@
       staged assess→adapt transitions, adaptation trace, learner-model
       panel). Gate: 191/191 tests pass, ruff clean, build passes, full
       browser flow verified at 1440/1100/820px with no console errors.
+- [x] **Final audit — done (2026-10-07).** Fixed: after a miss the selector
+      ranked difficulty above concept, so a missed concept was often not
+      revisited while the teacher claimed to "reinforce" it — remediation now
+      prefers the missed concept at the same or an easier level, and
+      transition text/status only claim reinforcement when it happens.
+      Replaced `dt-4` (a Gini-impurity question mis-tagged as tree
+      structure) with a genuine tree-structure question. Concept names keep
+      acronyms mid-sentence ("LIFO principle"). Unified the weak-concept
+      label ("Needs review"), made the "Targeting" step independent of the
+      learner model, stated in the UI that the model uses configured
+      parameters and is not trained, removed a hardcoded session length and
+      dead code, fixed the first-visit hero copy, labelled concept status
+      glyphs for screen readers. Gate: 194/194 tests pass, ruff clean, build
+      passes; browser flow (incl. refresh mid-session, back/forward, report
+      numbers vs API, empty DB, learner model disabled) verified with no
+      console or network errors.
 - [ ] **Phase 2.** Learner tool-calling loop; baselines A (no training) and
       B (static skill); batch CLI.
       Gate: real run works; baseline B below ~85% or difficulty is

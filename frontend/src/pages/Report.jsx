@@ -77,12 +77,17 @@ export default function Report({ id }) {
                   <td className="right num">{c.attempted ? `${c.correct} / ${c.attempted}` : "—"}</td>
                   {r.learner_model && <td className="right num">{pct(c.estimate)}</td>}
                   <td className="right">
-                    <StatusPill status={c.status} label={c.status === "weak" ? "Needs review" : undefined} />
+                    <StatusPill status={c.status} />
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          <p className="table-note muted small">
+            Status reflects your answers in this session.
+            {r.learner_model &&
+              " Model estimate is the offline Bayesian learner model's probability that you know the concept, accumulated across sessions (configured parameters, not a trained model)."}
+          </p>
         </Card>
 
         <Card title="Strengths and areas to improve" className="rise" style={{ animationDelay: "260ms" }}>

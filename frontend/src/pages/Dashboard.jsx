@@ -30,7 +30,9 @@ export default function Dashboard() {
           <h1 className="display hero-heading">
             {greeting()}.
             <br />
-            <span className="hero-sub">Let's pick up where you left off.</span>
+            <span className="hero-sub">
+              {p.sessions_completed || active ? "Let's pick up where you left off." : "Let's start learning."}
+            </span>
           </h1>
           <p className="hero-lede">
             {p.sessions_completed

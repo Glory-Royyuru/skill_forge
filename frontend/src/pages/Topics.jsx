@@ -90,7 +90,7 @@ export default function Topics({ active }) {
                       </div>
                     </div>
                     <div className="topic-card-foot">
-                      <span className="muted small">5 adaptive questions · ~4 min</span>
+                      <span className="muted small">{t.session_length} adaptive questions</span>
                       {isActive ? (
                         <button className="btn btn-primary btn-sm" onClick={() => navigate("session", active.id)}>
                           Continue <Icon name="arrowRight" size={14} />

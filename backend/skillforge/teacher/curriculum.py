@@ -147,25 +147,19 @@ SUBJECTS: list[dict[str, Any]] = [
                     {
                         "id": "dt-4",
                         "why_wrong": {
-                            1: (
-                                '0.5 is the Gini impurity of an evenly mixed two-class node, the '
-                                'opposite of pure.'
-                            ),
-                            2: (
-                                '1 is never reached by Gini for any node; impurity falls as a node '
-                                'gets purer.'
-                            ),
-                            3: 'Gini is always defined; a single-class node is the simplest case.',
+                            0: "3 is the depth itself, not the number of leaves.",
+                            1: "6 would mean adding two leaves per level; a binary split doubles them.",
+                            3: "9 is 3 squared, but each level doubles the count: 2 cubed, not 3 squared.",
                         },
                         "difficulty": 2,
                         "concept": "tree-structure",
-                        "prompt": "A node contains only samples from a single class. What is its Gini "
-                        "impurity?",
-                        "options": ["0", "0.5", "1", "It is undefined"],
-                        "answer": 0,
-                        "explanation": "Gini impurity is 1 minus the sum of squared class proportions. "
-                        "With one class the proportion is 1, so the impurity is 1 - 1 = 0: perfectly pure. "
-                        "Pure nodes become leaves.",
+                        "prompt": "A binary decision tree has a maximum depth of 3. What is the largest "
+                        "number of leaf nodes it can have?",
+                        "options": ["3", "6", "8", "9"],
+                        "answer": 2,
+                        "explanation": "Each level of binary splits can at most double the number of nodes: "
+                        "depth 1 gives 2 leaves, depth 2 gives 4, depth 3 gives 2³ = 8. Depth directly caps "
+                        "how finely a tree can partition the data.",
                     },
                     {
                         "id": "dt-5",

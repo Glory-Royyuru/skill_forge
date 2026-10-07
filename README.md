@@ -6,14 +6,16 @@ curriculum (Machine Learning, Python, DSA; 9 topics, 54 questions).
 
 - **Deterministic teaching engine** (`backend/skillforge/teacher/engine.py`):
   baseline diagnosis from your history, lessons, server-side grading,
-  difficulty that steps up/down with each answer, misconception-specific
+  difficulty that steps up/down with each answer, remediation that revisits
+  a missed concept at the same or an easier level, misconception-specific
   feedback, re-teaching after repeated misses, mastery tracking, and a
   learning report with a recommendation.
 - **Offline learner model** (`backend/skillforge/teacher/learner_model.py`):
-  Bayesian Knowledge Tracing in pure Python. It estimates P(known) per
-  concept, chooses which concept to target next, flags probable guesses,
-  and carries estimates between sessions. It is a supporting signal: the
-  engine works without it (`TEACHER_LEARNER_MODEL=none`).
+  Bayesian Knowledge Tracing in pure Python with configured (textbook)
+  slip/guess/learn parameters — it is not trained on data. It estimates
+  P(known) per concept, chooses which concept to target next, flags probable
+  guesses, and carries estimates between sessions. It is a supporting
+  signal: the engine works without it (`TEACHER_LEARNER_MODEL=none`).
 - **No external AI service** is called; everything runs locally.
 
 ### Run the demo

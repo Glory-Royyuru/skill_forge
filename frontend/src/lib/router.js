@@ -41,7 +41,7 @@ export function formatDate(iso) {
 export const STATUS_LABELS = {
   strong: "Strong",
   developing: "Developing",
-  weak: "Weak area",
+  weak: "Needs review",
   not_covered: "Not yet covered",
   mastered: "Mastered",
   in_progress: "In progress",

@@ -197,6 +197,7 @@ def curriculum_with_progress(db: Database) -> list[dict]:
     for s in subjects:
         for t in s["topics"]:
             t["progress"] = progress[t["id"]]
+            t["session_length"] = min(engine.QUESTIONS_PER_SESSION, t["question_count"])
     return subjects
 
 

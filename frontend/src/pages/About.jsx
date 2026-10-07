@@ -34,7 +34,7 @@ const FLOW = [
 
 const RULES = [
   ["Correct answer", "Mastery +15/20/25 (by difficulty) · difficulty steps up"],
-  ["Incorrect answer", "Mastery −5 · difficulty steps down · next question targets the missed concept"],
+  ["Incorrect answer", "Mastery −5 · difficulty steps down · next question revisits the missed concept when a same-or-easier question on it remains"],
   ["Second miss on a concept", "Needs review · concept is re-taught"],
   ["Correct, but model still doubts the concept (< 50%)", "Treated as a possible guess · stays on the concept at a harder level"],
   ["Choosing the next concept", "Least-known concept according to the learner model"],
