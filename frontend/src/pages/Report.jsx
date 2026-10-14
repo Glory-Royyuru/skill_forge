@@ -53,7 +53,7 @@ export default function Report({ id }) {
 
       <div className="grid grid-5">
         <Metric label="Overall score" value={pct(r.score)} delay={60} />
-        <Metric label="Mastery" value={pct(r.mastery)} sub={r.band} delay={110} />
+        <Metric label="Session mastery" value={pct(r.mastery)} sub={`${r.band} · this session`} delay={110} />
         <Metric label="Correct answers" value={`${r.correct} / ${r.attempted}`} delay={160} />
         <Metric label="Questions completed" value={r.attempted} delay={210} />
         <Metric label="Highest level" value={r.highest_level_label || "—"} sub={`Started at ${r.starting_level_label}`} delay={260} />
@@ -61,6 +61,7 @@ export default function Report({ id }) {
 
       <div className="grid grid-2">
         <Card title="Concept breakdown" className="rise" style={{ animationDelay: "200ms" }}>
+          <div className="table-scroll">
           <table className="table">
             <thead>
               <tr>
@@ -83,6 +84,7 @@ export default function Report({ id }) {
               ))}
             </tbody>
           </table>
+          </div>
           <p className="table-note muted small">
             Status reflects your answers in this session.
             {r.learner_model &&

@@ -31,7 +31,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from skillforge.teacher.curriculum import LEVEL_NAMES, SUBJECTS, get_topic, public_question, topic_ids
+from skillforge.teacher.curriculum import (
+    LEVEL_NAMES,
+    assessable_in_subject,
+    get_topic,
+    is_servable,
+    public_question,
+    resources_for,
+    topic_ids,
+)
 from skillforge.teacher.learner_model import LearnerModel, get_learner_model
 
 QUESTIONS_PER_SESSION = 5
@@ -63,6 +71,34 @@ def _topic(state: dict) -> dict:
     if found is None:
         raise TeacherError(f"unknown topic: {state['topic_id']}")
     return found[1]
+
+
+_LETTERS = "ABCDEF"
+
+
+def _wrong_answer_review(state: dict, topic: dict, q: dict, choice: int) -> dict:
+    """What a student needs after a wrong answer: both answers, why the right
+    one is right (and theirs is not, where the bank says), the concept's key
+    idea to remember, where it lives in the curriculum, and curated further
+    reading (empty rather than invented when none exists)."""
+    concept = q["concept"]
+    subject = get_topic(state["topic_id"])[0]
+    return {
+        "your_answer": {"letter": _LETTERS[choice], "text": q["options"][choice]},
+        "correct_answer": {"letter": _LETTERS[q["answer"]], "text": q["options"][q["answer"]]},
+        "why": q["explanation"],
+        "why_not_yours": q.get("why_wrong", {}).get(choice),
+        "remember": topic["concepts"][concept]["reteach"],
+        "related": {
+            "subject_id": subject["id"],
+            "subject_name": subject["name"],
+            "topic_id": state["topic_id"],
+            "topic_title": topic["title"],
+            "concept": concept,
+            "concept_name": topic["concepts"][concept]["name"],
+        },
+        "resources": resources_for(topic, concept)[:3],
+    }
 
 
 def _question(topic: dict, question_id: str) -> dict:
@@ -138,14 +174,23 @@ def _pick_next(
     on ties, harder after a correct answer and easier after a miss; then the
     concept to reinforce (if any); otherwise the concept the learner model
     considers least known (or, with no learner model, the least-practiced
-    concept); then bank order.
+    concept); then questions the student has seen least often in earlier
+    sessions (`state["exposure"]`); then a different cognitive type from the
+    last question; then bank order. Retired/inactive questions are never served.
     """
     asked = set(state["asked"])
-    remaining = [(i, q) for i, q in enumerate(topic["questions"]) if q["id"] not in asked]
+    remaining = [
+        (i, q) for i, q in enumerate(topic["questions"]) if q["id"] not in asked and is_servable(q)
+    ]
     if not remaining:
         return None
     target = state["level"]
     knowledge = _knowledge(state)
+    exposure = state.get("exposure") or {}
+    last_type = None
+    if state["answers"]:
+        last_q = _question(topic, state["answers"][-1]["question_id"])
+        last_type = last_q.get("cognitive_type")
 
     if reinforce_concept is not None and remediate_up_to is not None:
         same = [
@@ -153,9 +198,9 @@ def _pick_next(
             if q["concept"] == reinforce_concept and q["difficulty"] <= remediate_up_to
         ]
         if same:
-            return min(same, key=lambda it: (abs(it[1]["difficulty"] - target), it[1]["difficulty"], it[0]))[
-                1
-            ]
+            return min(same, key=lambda it: (
+                abs(it[1]["difficulty"] - target), it[1]["difficulty"], exposure.get(it[1]["id"], 0), it[0]
+            ))[1]
 
     def key(item: tuple[int, dict]) -> tuple:
         i, q = item
@@ -168,7 +213,9 @@ def _pick_next(
             concept_rank = (knowledge.get(q["concept"], 0.0), attempted)
         else:
             concept_rank = (attempted,)
-        return (distance, direction, concept_rank, i)
+        fresh = exposure.get(q["id"], 0)
+        variety = 1 if last_type and q.get("cognitive_type") == last_type else 0
+        return (distance, direction, concept_rank, fresh, variety, i)
 
     return min(remaining, key=key)[1]
 
@@ -181,19 +228,32 @@ def start_session(
     prior_mastery: float | None = None,
     prior_knowledge: dict[str, float] | None = None,
     learner_model: LearnerModel | None | object = _CONFIGURED,
+    start_level: int | None = None,
+    focus_concept: str | None = None,
+    exposure: dict[str, int] | None = None,
+    diagnose_notes: list[str] | None = None,
 ) -> dict:
     """Create a new session for a topic. `prior_mastery` / `prior_knowledge`
     come from the student's most recent completed session on this topic, if
     any. `learner_model` defaults to the configured one; pass None to run
     without it.
+
+    The optional plan from `skillforge.learner.selector` overrides how the
+    session starts: `start_level`, a `focus_concept` for the first question,
+    per-question `exposure` counts, and the DIAGNOSE log lines.
     """
     model = get_learner_model() if learner_model is _CONFIGURED else learner_model
     found = get_topic(topic_id)
     if found is None:
         raise TeacherError(f"unknown topic: {topic_id}")
     subject, topic = found
+    servable = [q for q in topic["questions"] if is_servable(q)]
+    if not servable:
+        raise TeacherError(f"{topic['title']} does not have a question bank yet")
 
-    if prior_mastery is not None and prior_mastery >= ADVANCED_START_THRESHOLD:
+    if start_level in (1, 2, 3):
+        level = start_level
+    elif prior_mastery is not None and prior_mastery >= ADVANCED_START_THRESHOLD:
         level = 2
     else:
         level = 1
@@ -206,7 +266,8 @@ def start_session(
         "level": level,
         "starting_level": level,
         "prior_mastery": prior_mastery,
-        "max_questions": min(QUESTIONS_PER_SESSION, len(topic["questions"])),
+        "max_questions": min(QUESTIONS_PER_SESSION, len(servable)),
+        "exposure": dict(exposure or {}),
         "asked": [],
         "current_question_id": None,
         "answers": [],
@@ -222,7 +283,10 @@ def start_session(
             "knowledge": model.init(list(topic["concepts"]), prior_knowledge),
         }
 
-    if prior_mastery is None:
+    if diagnose_notes:
+        for note in diagnose_notes:
+            _log(state, "diagnose", note)
+    elif prior_mastery is None:
         _log(state, "diagnose", f"No previous sessions on {topic['title']}. Starting with a foundational "
              "baseline question.")
     elif level == 2:
@@ -236,7 +300,24 @@ def start_session(
     _log(state, "teach", f"Delivered the core lesson on {topic['title']} "
          f"({len(topic['concepts'])} key concepts).")
 
-    first = _pick_next(state, topic, reinforce_concept=None, prefer_harder=False)
+    if focus_concept not in topic["concepts"]:
+        focus_concept = None
+    first = None
+    if focus_concept:
+        # The focus concept wins the first question: its question closest to
+        # the target level (fresher questions first on ties).
+        seen = state["exposure"]
+        candidates = [(i, q) for i, q in enumerate(servable) if q["concept"] == focus_concept]
+        if candidates:
+            first = min(candidates, key=lambda it: (
+                abs(it[1]["difficulty"] - level), it[1]["difficulty"], seen.get(it[1]["id"], 0), it[0]
+            ))[1]
+            if first["difficulty"] != level:
+                _log(state, "diagnose", f"The closest question on {topic['concepts'][focus_concept]['name']} "
+                     f"is at the {LEVEL_NAMES[first['difficulty']]} level.")
+                state["level"] = state["starting_level"] = first["difficulty"]
+    if first is None:
+        first = _pick_next(state, topic, reinforce_concept=None, prefer_harder=False)
     state["current_question_id"] = first["id"]
     state["asked"].append(first["id"])
     return state
@@ -304,6 +385,8 @@ def submit_answer(state: dict, question_id: str, choice: int) -> dict:
             "difficulty": q["difficulty"],
             "choice": choice,
             "correct_choice": q["answer"],
+            "choice_text": q["options"][choice],
+            "correct_text": q["options"][q["answer"]],
             "correct": correct,
             "verdict": verdict,
         }
@@ -435,6 +518,7 @@ def submit_answer(state: dict, question_id: str, choice: int) -> dict:
             message = [f"You chose “{chosen_text}”, but the answer is “{correct_text}”. {q['explanation']}"]
 
     return {
+        "review": None if correct else _wrong_answer_review(state, topic, q, choice),
         "question_id": q["id"],
         "verdict": verdict,
         "correct": correct,
@@ -517,6 +601,9 @@ def session_view(state: dict) -> dict:
         "topic_title": topic["title"],
         "subject_id": subject["id"],
         "subject_name": subject["name"],
+        "unit_label": subject.get("unit_label", "Unit"),
+        "unit_number": topic.get("unit_number"),
+        "unit_title": topic.get("unit_title"),
         "status": state["status"],
         "stage": state["stage"],
         "lesson": topic["lesson"],
@@ -545,12 +632,10 @@ def _next_topic_after(topic_id: str) -> str:
 
 
 def _same_subject_next(topic_id: str) -> str | None:
-    for s in SUBJECTS:
-        ids = [t["id"] for t in s["topics"]]
-        if topic_id in ids:
-            i = ids.index(topic_id)
-            return ids[i + 1] if i + 1 < len(ids) else None
-    return None
+    """The next topic with a question bank in the same subject, if any."""
+    ids = assessable_in_subject(get_topic(topic_id)[0]["id"])
+    i = ids.index(topic_id)
+    return ids[i + 1] if i + 1 < len(ids) else None
 
 
 def build_report(state: dict) -> dict:
@@ -615,8 +700,8 @@ def build_report(state: dict) -> dict:
                 "prompt": q["prompt"],
                 "concept_name": topic["concepts"][a["concept"]]["name"],
                 "difficulty_label": LEVEL_NAMES[a["difficulty"]],
-                "your_answer": q["options"][a["choice"]],
-                "correct_answer": q["options"][a["correct_choice"]],
+                "your_answer": a.get("choice_text", q["options"][a["choice"]]),
+                "correct_answer": a.get("correct_text", q["options"][a["correct_choice"]]),
                 "correct": a["correct"],
                 "verdict": a["verdict"],
                 "explanation": q["explanation"],
@@ -627,6 +712,9 @@ def build_report(state: dict) -> dict:
         "topic_id": topic["id"],
         "topic_title": topic["title"],
         "subject_name": subject["name"],
+        "unit_label": subject.get("unit_label", "Unit"),
+        "unit_number": topic.get("unit_number"),
+        "unit_title": topic.get("unit_title"),
         "complete": state["status"] == "completed",
         "score": score,
         "mastery": mastery,

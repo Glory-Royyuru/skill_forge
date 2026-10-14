@@ -19,9 +19,23 @@ const ICON_PATHS = {
   target: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zm0-4a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0-4a1 1 0 1 0 0-2 1 1 0 0 0 0 2z",
   layers: "M12 3 2 8l10 5 10-5zM2 13l10 5 10-5M2 17.5l10 5 10-5",
   pulse: "M3 12h4l3-8 4 16 3-8h4",
+  clock: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zm0-14v5l3 2",
+  calendar: "M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zm-1 5h16M8 3v4m8-4v4",
+  logout: "M15 4h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-3M10 16l-4-4 4-4m-4 4h10",
+  plus: "M12 5v14M5 12h14",
+  edit: "M4 20h4L19 9l-4-4L4 16zm10-14 4 4",
+  sun: "M12 3v2m0 14v2m9-9h-2M5 12H3m15.364-6.364-1.414 1.414M7.05 16.95l-1.414 1.414m12.728 0-1.414-1.414M7.05 7.05 5.636 5.636M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z",
+  moon: "M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z",
+  laptop: "M4 6h16a1 1 0 0 1 1 1v9H3V7a1 1 0 0 1 1-1zm-2 11h20v1a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1z",
+  sparkles: "m12 3 1.912 5.885L20 10.8l-6.088 1.915L12 18.6l-1.912-5.885L4 10.8l6.088-1.915L12 3zM19 16l.956 2.943L23 19.9l-3.044.957L19 23.8l-.956-2.943L15 19.9l3.044-.957L19 16z",
+  compass: "M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm3.5 6.5-2 5.5-5.5 2 2-5.5 5.5-2z",
+  flame: "M8.5 14.5A3.5 3.5 0 0 0 12 18a3.5 3.5 0 0 0 3.5-3.5c0-2-1.5-3.5-2-4.5-.5 1-1.5 1.5-2 1.5s-.5-.5-.5-1c0-1.5 1.5-3.5 1.5-4.5C11 7 8 9.5 8 13c0 .5.2 1 .5 1.5z",
+  brain: "M9.5 4a3.5 3.5 0 0 0-3.5 3.5c0 .4.1.8.2 1.1A3.5 3.5 0 0 0 4 12a3.5 3.5 0 0 0 2 3.1 3.5 3.5 0 0 0 3.5 3.9h1v-15h-1zm5 0a3.5 3.5 0 0 1 3.5 3.5c0 .4-.1.8-.2 1.1A3.5 3.5 0 0 1 20 12a3.5 3.5 0 0 1-2 3.1 3.5 3.5 0 0 1-3.5 3.9h-1v-15h1z",
+  trophy: "M6 9V4h12v5a6 6 0 0 1-12 0zm-2-3h2v4a4 4 0 0 1-2-2V6zm14 0h2v2a4 4 0 0 1-2 2V6zm-8 10v4m-3 0h6",
 };
 
 export function Icon({ name, size = 18, className = "" }) {
+  const path = ICON_PATHS[name] || ICON_PATHS.info;
   return (
     <svg
       className={`icon ${className}`}
@@ -35,7 +49,7 @@ export function Icon({ name, size = 18, className = "" }) {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <path d={ICON_PATHS[name]} />
+      <path d={path} />
     </svg>
   );
 }
@@ -101,7 +115,7 @@ export function Metric({ label, value, sub, delay = 0 }) {
   return (
     <div className="metric rise" style={{ animationDelay: `${delay}ms` }}>
       <div className="metric-label">{label}</div>
-      <div className="metric-value">{value ?? "—"}</div>
+      <div className="metric-value num">{value ?? "—"}</div>
       {sub && <div className="metric-sub">{sub}</div>}
     </div>
   );
@@ -167,25 +181,30 @@ export function LevelMeter({ level }) {
   );
 }
 
-export function Loading({ label = "Loading…" }) {
+export function Loading({ label = "Loading SkillForge…" }) {
   return (
-    <div className="state-msg">
-      <span className="loader" />
+    <div className="state-msg" role="status" aria-live="polite">
+      <span className="loader" aria-hidden="true" />
       {label}
     </div>
   );
 }
 
+// The server-start hint only helps when the server cannot be reached or is
+// out of date; for any other error it would be noise.
 export function ErrorState({ error, onRetry }) {
+  const serverProblem = error?.code === "network" || error?.code === "stale_server";
   return (
-    <div className="card error-card">
+    <div className="card error-card" role="alert">
       <div className="card-body">
-        <h2 className="card-title">Something went wrong</h2>
+        <h2 className="card-title">{serverProblem ? "Can't reach SkillForge" : "Something went wrong"}</h2>
         <p className="muted">{String(error?.message || error)}</p>
-        <p className="muted small">
-          Start the backend with <code>uvicorn skillforge.api.app:app --port 8000</code> from the{" "}
-          <code>backend</code> folder.
-        </p>
+        {serverProblem && (
+          <p className="muted small">
+            Developers: start the backend with <code>uvicorn skillforge.api.app:app --port 8000</code> from the{" "}
+            <code>backend</code> folder.
+          </p>
+        )}
         {onRetry && (
           <button className="btn btn-secondary" onClick={onRetry}>
             Try again

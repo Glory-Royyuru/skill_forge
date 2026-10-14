@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import { ErrorState, Icon, LevelMeter, Loading, useCountUp } from "../components/ui.jsx";
-import { STATUS_LABELS, navigate, pct } from "../lib/router.js";
+import { LoopPath } from "../components/world.jsx";
+import { prefersReducedMotion } from "../components/motion.jsx";
+import { STATUS_LABELS, navigate, pct, roman } from "../lib/router.js";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F"];
 const LOOP = ["diagnose", "teach", "assess", "adapt", "report"];
 const LOOP_LABELS = { diagnose: "Diagnose", teach: "Teach", assess: "Assess", adapt: "Adapt", report: "Report" };
-const VERDICT_LABELS = { correct: "Correct", incorrect: "Not quite", needs_review: "Needs review" };
+const VERDICT_LABELS = { correct: "Correct", incorrect: "Incorrect", needs_review: "Needs review" };
 const CONCEPT_MARK = { strong: "✓", developing: "◐", weak: "!", not_covered: "○" };
 const STEP_MS = 380;
 
@@ -23,18 +25,78 @@ function Prompt({ text }) {
   );
 }
 
-function Loop({ stage }) {
-  const idx = LOOP.indexOf(stage);
+// After a wrong answer the explanation reads in a fixed order: the correct
+// answer, why it is correct, what to remember, the related concept, then
+// verified further reading. The student's own choice is shown, but second.
+// The tone is "here is what to take from this", never a penalty.
+function WrongAnswerReview({ review }) {
+  const rel = review.related;
+  const link = `#/learn?subject=${encodeURIComponent(rel.subject_id)}&topic=${encodeURIComponent(rel.topic_id)}`;
   return (
-    <ol className="loop" aria-label="Teaching loop">
-      {LOOP.map((s, i) => (
-        <li key={s} className={i < idx ? "done" : i === idx ? "current" : ""}>
-          <span className="loop-dot">{i < idx ? <Icon name="check" size={11} /> : null}</span>
-          <span className="loop-name">{LOOP_LABELS[s]}</span>
-          {i < LOOP.length - 1 && <span className="loop-line" />}
-        </li>
-      ))}
-    </ol>
+    <div className="teach">
+      <section className="teach-correct" aria-label="Correct answer">
+        <span className="teach-n" aria-hidden="true">1</span>
+        <div>
+          <h4 className="teach-k">Correct answer</h4>
+          <p className="teach-answer">
+            <span className="ans-letter ok">{review.correct_answer.letter}</span>
+            {review.correct_answer.text}
+          </p>
+          <p className="teach-yours">
+            You chose <span className="ans-letter bad">{review.your_answer.letter}</span>
+            <span className="teach-yours-t">{review.your_answer.text}</span>
+          </p>
+        </div>
+      </section>
+      <section className="teach-block">
+        <span className="teach-n" aria-hidden="true">2</span>
+        <div>
+          <h4 className="teach-k">Why it is correct</h4>
+          <p>{review.why}</p>
+          {review.why_not_yours && (
+            <p className="teach-aside">
+              <strong>About {review.your_answer.letter}:</strong> {review.why_not_yours}
+            </p>
+          )}
+        </div>
+      </section>
+      <section className="teach-block teach-remember">
+        <span className="teach-n" aria-hidden="true">3</span>
+        <div>
+          <h4 className="teach-k">What to remember</h4>
+          <p>{review.remember}</p>
+        </div>
+      </section>
+      <section className="teach-block">
+        <span className="teach-n" aria-hidden="true">4</span>
+        <div>
+          <h4 className="teach-k">Related concept</h4>
+          <a className="teach-related" href={link} target="_blank" rel="noopener noreferrer">
+            {rel.concept_name}
+            <span className="teach-meta"> · {rel.topic_title} · opens Learn in a new tab</span>
+          </a>
+        </div>
+      </section>
+      {review.resources.length > 0 && (
+        <section className="teach-block">
+          <span className="teach-n" aria-hidden="true">5</span>
+          <div>
+            <h4 className="teach-k">Further reading</h4>
+            <ul className="teach-res">
+              {review.resources.map((r) => (
+                <li key={r.url}>
+                  <a href={r.url} target="_blank" rel="noopener noreferrer">
+                    {r.title}
+                  </a>
+                  <span className="teach-meta"> · {r.publisher} · external site, new tab</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      )}
+      <p className="teach-note">A wrong answer is evidence, not a penalty: it tells the Teacher what to explain next.</p>
+    </div>
   );
 }
 
@@ -75,10 +137,16 @@ export default function Session({ id }) {
   const [steps, setSteps] = useState([]);
   const [stepIdx, setStepIdx] = useState(0);
   const [error, setError] = useState(null);
+  const [submitError, setSubmitError] = useState(null);
   const [lessonOpen, setLessonOpen] = useState(true);
   const questionRef = useRef(null);
   const feedbackRef = useRef(null);
   const timers = useRef([]);
+  const submitting = useRef(false);
+  const shownAt = useRef(Date.now());
+  useEffect(() => {
+    shownAt.current = Date.now();
+  }, [question?.id]);
 
   const mastery = useCountUp(session ? session.mastery : null, 800);
 
@@ -98,12 +166,15 @@ export default function Session({ id }) {
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
   const submit = useCallback(async () => {
-    if (selected == null || phase !== "answering") return;
+    if (selected == null || phase !== "answering" || submitting.current) return;
+    submitting.current = true; // a second Enter or click in the same tick must not answer twice
+    setSubmitError(null);
     setPhase("evaluating");
     setSteps(["Assessing understanding"]);
     setStepIdx(0);
     try {
-      const r = await api.answer(id, question.id, selected);
+      // Response time is sent as a secondary signal; it never affects grading.
+      const r = await api.answer(id, question.id, selected, Date.now() - shownAt.current);
       const fb = r.feedback;
       const seq = [
         "Assessing understanding",
@@ -117,12 +188,18 @@ export default function Session({ id }) {
           setFeedback(fb);
           setSession(r.session);
           setPhase("feedback");
-          setTimeout(() => feedbackRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 60);
+          // Move keyboard and screen-reader focus to the verdict, then bring it into view.
+          setTimeout(() => {
+            feedbackRef.current?.focus({ preventScroll: true });
+            feedbackRef.current?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "nearest" });
+          }, 60);
         }, seq.length * STEP_MS)
       );
     } catch (e) {
+      // Keep the question and the chosen answer on screen; say what failed.
+      submitting.current = false;
       setPhase("answering");
-      setError(e);
+      setSubmitError(e);
     }
   }, [id, question, selected, phase]);
 
@@ -137,25 +214,47 @@ export default function Session({ id }) {
     setFeedback(null);
     setPhase("answering");
     setLessonOpen(false);
-    setTimeout(() => questionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+    setSubmitError(null);
+    submitting.current = false;
+    setTimeout(() => {
+      questionRef.current?.focus({ preventScroll: true });
+      questionRef.current?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+    }, 60);
   }, [feedback, session, id]);
 
-  // Keyboard: A–D / 1–4 to choose, Enter to submit or continue.
+  // Keyboard: A–D / 1–4 to choose, arrow keys to move between options,
+  // Enter to submit or continue. Enter on another button or link keeps its
+  // own meaning, so the shortcut never fires twice.
   useEffect(() => {
     const onKey = (e) => {
       if (!question || e.metaKey || e.ctrlKey || e.altKey) return;
+      const onControl = e.target.closest?.("a, button:not(.option), input, textarea, select, summary");
       const k = e.key.toUpperCase();
       if (phase === "answering") {
+        const n = question.options.length;
+        if ((e.key === "ArrowDown" || e.key === "ArrowUp") && e.target.closest?.(".options")) {
+          e.preventDefault();
+          const cur = selected ?? (e.key === "ArrowDown" ? -1 : n);
+          const idx = (cur + (e.key === "ArrowDown" ? 1 : -1) + n) % n;
+          setSelected(idx);
+          questionRef.current?.querySelectorAll(".option")[idx]?.focus();
+          return;
+        }
+        if (onControl) return;
         const idx = LETTERS.indexOf(k) >= 0 ? LETTERS.indexOf(k) : Number(k) - 1;
-        if (idx >= 0 && idx < question.options.length) setSelected(idx);
-        if (e.key === "Enter") submit();
-      } else if (phase === "feedback" && e.key === "Enter") {
+        if (idx >= 0 && idx < n) setSelected(idx);
+        if (e.key === "Enter") {
+          e.preventDefault();
+          submit();
+        }
+      } else if (phase === "feedback" && e.key === "Enter" && !onControl) {
+        e.preventDefault();
         next();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [question, phase, submit, next]);
+  }, [question, phase, selected, submit, next]);
 
   if (error) return <ErrorState error={error} onRetry={load} />;
   if (!session) return <Loading label="Preparing your session…" />;
@@ -207,15 +306,19 @@ export default function Session({ id }) {
       <div className="session-top rise">
         <div>
           <div className="crumbs">
-            <button className="link-btn" onClick={() => navigate("topics")}>
+            <button className="link-btn" onClick={() => navigate("learn", null, { subject: session.subject_id })}>
               {session.subject_name}
             </button>
             <span>/</span>
-            <span>{session.topic_title}</span>
+            <span>
+              {session.unit_label} {roman(session.unit_number)}
+            </span>
+            <span>/</span>
+            <span className="crumb-topic">{session.topic_title}</span>
           </div>
           <h1 className="display">{session.topic_title}</h1>
         </div>
-        <Loop stage={stage} />
+        <LoopPath stages={LOOP.map((s) => LOOP_LABELS[s])} current={LOOP_LABELS[stage]} />
       </div>
 
       <div className="session-grid">
@@ -267,7 +370,7 @@ export default function Session({ id }) {
           </section>
 
           {question && (
-            <section className="card question-card" ref={questionRef}>
+            <section className="card question-card" ref={questionRef} tabIndex={-1} aria-label={`Question ${qNumber} of ${session.max_questions}`}>
               <div className="q-enter" key={question.id}>
                 <div className="card-body">
                   <div className="q-meta">
@@ -279,7 +382,7 @@ export default function Session({ id }) {
                     {qNumber === 1 && <span className="chip chip-outline">Baseline</span>}
                   </div>
                   <Prompt text={question.prompt} />
-                  <div className="options" role="radiogroup">
+                  <div className="options" role="radiogroup" aria-label="Answer options">
                     {question.options.map((opt, i) => {
                       let cls = "option";
                       if (feedback) {
@@ -295,7 +398,6 @@ export default function Session({ id }) {
                           aria-checked={selected === i}
                           disabled={phase !== "answering"}
                           onClick={() => setSelected(i)}
-                          style={{ animationDelay: `${80 + i * 50}ms` }}
                         >
                           <span className="option-letter">{LETTERS[i]}</span>
                           <span className="option-text">{opt}</span>
@@ -309,7 +411,15 @@ export default function Session({ id }) {
                   </div>
                   {phase !== "feedback" && (
                     <div className="q-actions">
-                      <span className="muted small">Choose an answer. Keys A–D and Enter work too.</span>
+                      {submitError ? (
+                        <span className="q-error" role="alert">
+                          {submitError.message} Your choice is kept; submit again when ready.
+                        </span>
+                      ) : (
+                        <span className="muted small">
+                          {selected == null ? "Choose an answer. Keys A–D or the arrow keys work too." : `Answer ${LETTERS[selected]} selected. Press Enter or Submit.`}
+                        </span>
+                      )}
                       <button className="btn btn-primary" disabled={selected == null || busy} onClick={submit}>
                         {busy ? (
                           <>
@@ -324,7 +434,7 @@ export default function Session({ id }) {
                 </div>
 
                 {feedback && (
-                  <div className={`feedback fb-${feedback.verdict}`} ref={feedbackRef}>
+                  <div className={`feedback fb-${feedback.verdict}`} ref={feedbackRef} tabIndex={-1} role="region" aria-label="Feedback on your answer">
                     <div className="feedback-head">
                       <span className={`verdict verdict-${feedback.verdict}`}>
                         <Icon
@@ -341,12 +451,16 @@ export default function Session({ id }) {
                       )}
                     </div>
                     <p className="feedback-headline display">{feedback.headline}</p>
-                    {feedback.message.map((m, i) => (
-                      <p key={i} className="feedback-text">
-                        {m}
-                      </p>
-                    ))}
-                    {feedback.reteach && (
+                    {feedback.review ? (
+                      <WrongAnswerReview review={feedback.review} />
+                    ) : (
+                      feedback.message.map((m, i) => (
+                        <p key={i} className="feedback-text">
+                          {m}
+                        </p>
+                      ))
+                    )}
+                    {feedback.reteach && !feedback.review && (
                       <div className="reteach">
                         <div className="reteach-title">Key idea · {feedback.concept_name}</div>
                         <p>{feedback.reteach}</p>
@@ -354,43 +468,39 @@ export default function Session({ id }) {
                     )}
 
                     {!feedback.is_last && (
-                      <ol className="trace" aria-label="Teacher adaptation">
-                        <li style={{ animationDelay: "120ms" }}>
-                          <span className="trace-k">Teacher adaptation</span>
-                          <span className="trace-v">{feedback.transition}</span>
-                        </li>
-                        <li style={{ animationDelay: "260ms" }}>
-                          <span className="trace-k">
-                            {feedback.adaptation.direction === "hold" ? "Difficulty held" : "Difficulty adjusted"}
-                          </span>
-                          <span className="trace-v">
-                            {feedback.adaptation.direction === "hold" ? (
-                              feedback.adaptation.to_label
-                            ) : (
-                              <>
-                                {feedback.adaptation.from_label}
-                                <Icon name={feedback.adaptation.direction === "up" ? "arrowUp" : "arrowDown"} size={13} />
-                                {feedback.adaptation.to_label}
-                              </>
-                            )}
-                          </span>
-                        </li>
-                        {feedback.next_concept_name && (
-                          <li style={{ animationDelay: "400ms" }}>
-                            <span className="trace-k">Targeting</span>
-                            <span className="trace-v">
-                              <Icon name="target" size={13} /> {feedback.next_concept_name}
-                            </span>
-                          </li>
-                        )}
-                      </ol>
+                      <section className="next-step" aria-label="What happens next">
+                        <h4 className="next-step-k">{feedback.correct ? "What happens next" : "Changing direction"}</h4>
+                        <p className="next-step-t">{feedback.transition}</p>
+                        <dl className="next-step-facts">
+                          <div>
+                            <dt>{feedback.adaptation.direction === "hold" ? "Difficulty held" : "Difficulty adjusted"}</dt>
+                            <dd>
+                              {feedback.adaptation.direction === "hold" ? (
+                                feedback.adaptation.to_label
+                              ) : (
+                                <>
+                                  {feedback.adaptation.from_label}
+                                  <Icon name={feedback.adaptation.direction === "up" ? "arrowUp" : "arrowDown"} size={13} />
+                                  {feedback.adaptation.to_label}
+                                </>
+                              )}
+                            </dd>
+                          </div>
+                          {feedback.next_concept_name && (
+                            <div>
+                              <dt>Next concept</dt>
+                              <dd>{feedback.next_concept_name}</dd>
+                            </div>
+                          )}
+                        </dl>
+                      </section>
                     )}
 
                     <div className="feedback-foot">
                       {feedback.is_last ? (
                         <span className="adapt-text">{feedback.transition}</span>
                       ) : (
-                        <span className="muted small">Press Enter to continue</span>
+                        <span className="muted small kbd-hint">Press Enter to continue</span>
                       )}
                       <button className="btn btn-primary" onClick={next}>
                         {feedback.is_last ? "View Learning Report" : "Next Question"}

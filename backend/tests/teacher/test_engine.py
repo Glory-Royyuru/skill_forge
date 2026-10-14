@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from skillforge.teacher import engine
-from skillforge.teacher.curriculum import SUBJECTS, get_question, get_topic, public_question
+from skillforge.teacher.curriculum import get_question, get_topic, public_question, subjects, topic_ids
 
 
 def _answer(state: dict, correct: bool) -> dict:
@@ -21,24 +21,30 @@ def _run(topic_id: str, pattern: list[bool], prior: float | None = None) -> tupl
 # --- Curriculum ----------------------------------------------------------------
 
 
-def test_curriculum_shape():
-    assert len(SUBJECTS) == 3
-    for s in SUBJECTS:
-        assert len(s["topics"]) == 3
-        for t in s["topics"]:
-            assert t["lesson"]["intro"] and t["lesson"]["key_points"]
-            assert 4 <= len(t["questions"]) <= 6
-            for level in (1, 2, 3):
-                assert any(q["difficulty"] == level for q in t["questions"])
-            for q in t["questions"]:
-                assert len(q["options"]) == 4
-                assert 0 <= q["answer"] < 4
-                assert q["concept"] in t["concepts"]
-                assert q["explanation"]
+def test_assessable_topics_are_complete_question_banks():
+    assessable = topic_ids()
+    assert len(assessable) >= 8
+    for tid in assessable:
+        _, t = get_topic(tid)
+        assert t["lesson"]["intro"] and t["lesson"]["key_points"]
+        assert len(t["concepts"]) >= 2
+        assert len(t["questions"]) == 6
+        for level in (1, 2, 3):
+            assert sum(q["difficulty"] == level for q in t["questions"]) == 2
+        for q in t["questions"]:
+            assert len(q["options"]) == 4
+            assert len(set(q["options"])) == 4
+            assert 0 <= q["answer"] < 4
+            assert q["concept"] in t["concepts"]
+            assert q["explanation"]
+            for k in q.get("why_wrong", {}):
+                assert k != q["answer"] and 0 <= k < 4
 
 
-def test_question_ids_unique():
-    ids = [q["id"] for s in SUBJECTS for t in s["topics"] for q in t["questions"]]
+def test_question_and_topic_ids_unique():
+    topics = [t for s in subjects() for u in s["units"] for t in u["topics"]]
+    assert len({t["id"] for t in topics}) == len(topics)
+    ids = [q["id"] for t in topics for q in t["questions"]]
     assert len(ids) == len(set(ids))
 
 
@@ -109,31 +115,31 @@ def test_repeated_miss_on_concept_is_needs_review_with_reteach():
 
 
 def test_wrong_question_or_bad_choice_rejected():
-    state = engine.start_session("lists")
+    state = engine.start_session("os-deadlock")
     with pytest.raises(engine.TeacherError):
-        engine.submit_answer(state, "ls-6", 0)
+        engine.submit_answer(state, "os-dl-6", 0)
     with pytest.raises(engine.TeacherError):
         engine.submit_answer(state, state["current_question_id"], 9)
 
 
 def test_session_completes_after_budget_and_rejects_more_answers():
-    state, feedback = _run("stacks", [True] * engine.QUESTIONS_PER_SESSION)
+    state, feedback = _run("lab-page-replacement", [True] * engine.QUESTIONS_PER_SESSION)
     assert state["status"] == "completed"
     assert feedback[-1]["is_last"] is True
     assert state["current_question_id"] is None
     with pytest.raises(engine.TeacherError):
-        engine.submit_answer(state, "st-1", 0)
+        engine.submit_answer(state, "lab-pr-1", 0)
 
 
 def test_no_question_repeats_within_session():
-    state, _ = _run("functions", [False, True, False, True, False])
+    state, _ = _run("ai-search-strategies", [False, True, False, True, False])
     ids = [a["question_id"] for a in state["answers"]]
     assert len(ids) == len(set(ids))
 
 
 def test_engine_is_deterministic():
-    a, fa = _run("binary-search", [True, False, True, True, False])
-    b, fb = _run("binary-search", [True, False, True, True, False])
+    a, fa = _run("cn-error-detection", [True, False, True, True, False])
+    b, fb = _run("cn-error-detection", [True, False, True, True, False])
     assert a == b and fa == fb
 
 
@@ -149,22 +155,29 @@ def test_perfect_session_report_recommends_advancing():
     assert report["highest_level_label"] == "Advanced"
     assert report["weak_areas"] == []
     assert report["recommendation"]["action"] == "advance"
-    assert report["recommendation"]["next_topic_id"] == "overfitting"
+    assert report["recommendation"]["next_topic_id"] == "bias-variance"
     assert len(report["review"]) == 5
 
 
 def test_struggling_session_report_recommends_review_of_same_topic():
-    state, _ = _run("arrays", [False] * 5)
+    state, _ = _run("os-cpu-scheduling", [False] * 5)
     report = engine.build_report(state)
     assert report["mastery"] == 0.0
     assert report["weak_areas"]
     assert report["recommendation"]["action"] == "review"
-    assert report["recommendation"]["next_topic_id"] == "arrays"
+    assert report["recommendation"]["next_topic_id"] == "os-cpu-scheduling"
 
 
 def test_last_topic_in_subject_advances_to_next_subject():
-    state, _ = _run("linear-regression", [True] * 5)
-    assert engine.build_report(state)["recommendation"]["next_topic_id"] == "functions"
+    # Bias-Variance (ML Unit V) is the last ML topic with a question bank;
+    # the next one is in Explainable AI.
+    state, _ = _run("bias-variance", [True] * 5)
+    assert engine.build_report(state)["recommendation"]["next_topic_id"] == "xai-post-hoc"
+
+
+def test_topic_without_question_bank_cannot_start():
+    with pytest.raises(engine.TeacherError):
+        engine.start_session("cn-dns")
 
 
 def test_adaptation_message_matches_next_question_for_every_answer_pattern():
@@ -212,21 +225,23 @@ def test_adaptation_message_matches_next_question_for_every_answer_pattern():
 
 
 def test_missed_concept_is_revisited_when_an_easier_or_equal_question_exists():
-    # bs-1 (precondition) correct -> bs-3 (complexity, L2); missing bs-3 must
-    # bring back the other complexity question (bs-4, L2), not a new concept.
-    state = engine.start_session("binary-search", learner_model=None)
+    # cn-tl-1 (ports) correct -> cn-tl-3 (UDP/TCP, L2); missing it must bring
+    # back the other UDP/TCP question (cn-tl-2, L1), not a new concept.
+    state = engine.start_session("cn-transport", learner_model=None)
     _answer(state, True)
-    missed = get_question("binary-search", state["current_question_id"])
+    missed = get_question("cn-transport", state["current_question_id"])
     fb = _answer(state, False)
-    nxt = get_question("binary-search", state["current_question_id"])
+    nxt = get_question("cn-transport", state["current_question_id"])
     assert nxt["concept"] == missed["concept"]
     assert nxt["difficulty"] <= missed["difficulty"]
     assert "reinforce" in fb["transition"]
-    assert fb["next_concept_name"] == "Logarithmic complexity"
+    assert fb["next_concept_name"] == "UDP and TCP services"
 
 
 def test_concept_names_keep_acronyms_mid_sentence():
-    assert engine._lc("LIFO principle") == "LIFO principle"
+    assert engine._lc("UDP and TCP services") == "UDP and TCP services"
     assert engine._lc("Object-Oriented Programming") == "object-oriented programming"
-    view = engine.session_view(engine.start_session("stacks", learner_model=None))
-    assert "LIFO principle" in view["teacher_status"]
+    state = engine.start_session("cn-transport", learner_model=None)
+    _answer(state, True)
+    _answer(state, False)  # the next question revisits "UDP and TCP services"
+    assert "UDP and TCP services" in engine.session_view(state)["teacher_status"]

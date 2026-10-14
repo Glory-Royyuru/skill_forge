@@ -119,7 +119,80 @@
       passes; browser flow (incl. refresh mid-session, back/forward, report
       numbers vs API, empty DB, learner model disabled) verified with no
       console or network errors.
-- [ ] **Phase 2.** Learner tool-calling loop; baselines A (no training) and
+- [x] **Student platform (accounts, persistence, VNR curriculum) — ready for review
+      (2026-10-07).** Real accounts (register, email verification, sign-in via
+      HttpOnly session cookie, sign-out, forgot/reset password; scrypt password
+      hashes; hashed, expiring, single-use tokens; console or SMTP email
+      backend). All Teacher data is per student and backend-enforced:
+      `learning_sessions`, `answers` (with the adaptive decision), per-concept
+      BKT state in `learner_concepts` (loaded at the start of each session),
+      and `timetable_entries` with CRUD. Curriculum replaced with the eight VNR
+      R22 AIML V Semester courses from the syllabus PDF (subject → unit →
+      topic → concept → question; 125 topics, 14 with question banks, 84
+      questions), seeded into new tables and loaded from the database at
+      startup. The old demo history seed and the Python/DSA practice topics are
+      removed. Added a small versioned migration runner (`db/migrations.py`,
+      `python -m skillforge db upgrade`) and `python -m skillforge curriculum
+      seed`. Frontend: auth screens, real-data dashboard with genuine empty
+      state, unit-based curriculum, timetable page. Gate: 249/249 tests pass,
+      ruff clean, build passes; authenticated browser flow (register → verify →
+      sign in → session → report → sign out → sign in, second student
+      isolation, timetable) verified with no unexpected errors.
+- [x] **Learner intelligence & product UX — ready for review (2026-10-07,
+      branch `glory-modifications`).** New `skillforge/learner/` package:
+      unified evidence log (`evidence_events`) and weighted BKT updates;
+      explainable learner state with documented status rules and
+      coverage-aware aggregation; recommendation engine (incl. timetable
+      class preparation); cold-start diagnostic; personalised flashcards;
+      server-timed Rapid Round (lower evidence weight); calendar activity,
+      weekly trends, PTM/SWOT and activity level; session start planned from
+      learner state (focus concept, start level, exposure-aware question
+      choice, quality filtering). Question metadata (cognitive type,
+      quality, active, source) and ML-bank answer-position rebalancing.
+      Migration v2 (idempotent, backfills evidence from existing answers).
+      Progress/report mastery is now concept-level; the session report score
+      is unchanged. Frontend: landing page, six-area navigation (Home, Learn,
+      Practice, Progress, Calendar, Profile), command-center dashboard,
+      diagnostic, practice hub, evidence-based progress and PTM view,
+      calendar, profile (mode, theme, timetable), auth validation polish,
+      seasonal theme layer. No trained ML model (interface + BKT baseline
+      only). Gate: 297/297 tests, ruff clean, build passes, 35/35 browser
+      checks (fresh student → diagnostic → session → practice → timetable →
+      PTM → persistence → second-student isolation) at 1440/1100/820/390 px
+      with no console errors, unexpected HTTP errors or overflow.
+- [x] **Product design & signup fix — ready for review (2026-10-07,
+      branch `glory-modifications`).** Signup "Not Found": the backend
+      process on port 8000 had been started (without `--reload`) before the
+      accounts code existed, so `POST /api/auth/register` really was a 404;
+      the frontend then printed FastAPI's raw `detail`. Fixes: `/api/health`
+      reports `api_version` + features; the frontend maps errors by status/code
+      (no raw "Not Found", no stack traces) and detects an out-of-date server;
+      `tests/test_api_contract.py` checks every `api.js` endpoint is registered.
+      New public `GET /api/curriculum` outline (no questions) for the landing
+      page. Design system (ink/paper/leather tokens, Fraunces + Inter
+      self-hosted, motion primitives, reduced-motion support); CSS-3D book on
+      the landing page and as the persistent auth scene (page turns between
+      auth steps, view transitions); leather sidebar + mobile tab bar;
+      command-center dashboard; Learn as chapters → sections → topics →
+      concepts; 3D flashcards; Rapid Round timer bar; remediation shown as a
+      change of direction; knowledge vs activity on Progress; SWOT matrix in
+      PTM; calendar ink-wash + streak. Gate: 301 tests, ruff clean, build
+      passes, browser e2e (see final report).
+- [x] **Experience redesign — ready for review (2026-10-07, branch
+      `glory-modifications`).** Frontend only; no backend logic changed.
+      Shared "knowledge world" scene system (`components/world.jsx`,
+      `styles/world.css`): paper-map territories, self-drawing paths with
+      travellers, pointer parallax, scroll progress, hidden-tab pause,
+      reduced-motion fallbacks. Landing rebuilt as one sticky scroll story
+      (10 chapters, real curriculum counts). Top nav: Learn, Practice,
+      Progress, Calendar, PTM (brand = Home). Learn: live knowledge map +
+      honest roadmap (`lib/catalog.js`: names only, "coming soon"; invented
+      roadmap units/concepts removed). Dashboard: recommendation drawn as a
+      route. Teacher loop as a travelled path; wrong-answer lesson unfolds.
+      Progress: Activity ≠ Assessment ≠ Mastery tracks. Calendar: upcoming
+      timeline with preparation. Profile: learning identity. Auth scene
+      reacts to each step. Removed fake sample links from the landing. Gate:
+      314 tests, ruff clean, build passes, 87/87 browser checks.- [ ] **Phase 2.** Learner tool-calling loop; baselines A (no training) and
       B (static skill); batch CLI.
       Gate: real run works; baseline B below ~85% or difficulty is
       increased.
@@ -365,6 +438,65 @@
   process-local dict keyed by a SHA-256 hash of the normalized request.
   Good enough for Phase 0; swappable for a persistent backend later without
   touching `LoggingLLMClient` call sites.
-- (Phase 0) CLI uses stdlib `argparse` rather than adding a CLI framework
-  dependency (click/typer) — only one subcommand exists so far.
+- (Phase Visual Redesign — 2026-10-07) Visual & UX System Redesign: "Interactive Knowledge Universe".
+  Completed a comprehensive UI/UX overhaul inspired by editorial creative-tech design (Emotion Agency style):
+  - True Light & Dark themes with top navigation toggle (`light`, `dark`, `auto` with system media-query sync), full tokenization via CSS variables, and persistent preferences.
+  - Complete elimination of all internal subject codes (e.g., `22PC1IN202`, `22PC1AM301`) from visible UI rendering across the entire application.
+  - Reimagined Learn page (`Topics.jsx`) with dual view modes: "Curriculum Blueprint" & "Constellation World", 5 first-class learning areas (Core CS, AI & ML, Modern AI, AI Engineering, DSA & Algorithms), and custom SVG visual motifs for each domain.
+  - Redesigned Dashboard (`Dashboard.jsx`) with editorial typography (Fraunces serif + Inter sans), interactive Knowledge Constellation SVG map (`KnowledgeMap.jsx`), 3-pillar metric ledger (Activity, Assessment, Mastery), and actionable triage layout.
+  - Elevated Practice Hub (`PracticeHub.jsx`) with 3D flashcard flip, Rapid Round 60s countdown timer with animated progress arc, and clean review workflows.
+  - Preserved 100% of existing backend APIs, authentication, learner intelligence, Bayesian Knowledge Tracing, Teacher Agent loop, diagnostic, timetable, and test suites.
+  - Verification: 314/314 pytest tests passed (0 failures), ruff clean, Vite production build succeeded in 1.34s.
 
+- (Phase Global Learning World — 2026-10-13) **Ready for review.** "Knowledge has no borders":
+  realistic interactive Earth, calm UI, ocean/ivory design tokens. Frontend-only; backend unchanged (API v4).
+  - `components/Earth.jsx` + `styles/earth.css`: Three.js 0.169 (lazy-loaded chunk), NASA Blue Marble day,
+    Black Marble night lights (dark theme only), cloud layer, thin atmosphere. Drag with inertia, pinch and
+    ctrl+wheel zoom (clamped), arrow keys, zoom/reset buttons, `touch-action: pan-y` so vertical swipes scroll.
+    Near-still idle drift (one turn ≈ 30 min), resumes 5 s after interaction; off under reduced motion; paused
+    when off-screen or tab hidden. Static NASA image fallback when WebGL is unavailable. Arcs are symbolic.
+  - Landing rewritten: Earth hero beside the headline, 6 static story sections + "Begin" with real area counts,
+    normal scrolling, no animated text. Dashboard: the recommendation (what / why / time / target / start) is the
+    single lead; route diagram and map removed from Home. Home added to the top nav. `styles/identity.css` applies
+    the tokens (ocean nav band, buttons, focus ring, brand mark). Learn hides the map below 600 px (list first).
+  - Calm pass: removed ambient travellers, parallax, drift/breathe loops, entrance stagger animations.
+  - `lib/theme.js`: unknown stored theme values fall back to `auto`.
+  - Verification: pytest 314 passed, ruff clean, Vite build OK, headless Edge harness 123/123
+    (Earth drag/inertia/zoom/reset/keys/touch/pinch/scroll, reduced motion, light/dark/auto, 4 viewports,
+    overflow, auth, persistence, Teacher, DSA, flashcards, Rapid Round, PTM, isolation). WebGL-disabled
+    fallback checked separately.
+
+- (Phase UX Polish & Earth Performance — 2026-10-13) **Ready for review.** Frontend-only; backend unchanged (API v4).
+  - Fixed: landing sections 02/04/06 rendered upside down (a global `.flip` rotate rule; landing now uses `lsx-alt`,
+    rotate scoped to `.icon.flip`). Restored component styles lost in an earlier stylesheet rewrite (Learning Report,
+    diagnostic summary, timetable week, settings choices, password rules, About stages, loading/error states).
+    Double-submit races on Teacher answers, diagnostic answers, flashcard ratings and Rapid Round answers (ref guards).
+  - Practice Hub: three activities (what / when / counts as / action) above the evidence-chosen list. Needs Review no
+    longer lists a concept after one wrong answer (needs_review status, or low estimate with 3+ answers).
+  - Teacher session: wrong-answer explanation ordered correct answer → why → remember → related concept → further
+    reading; one "what happens next" block; focus moves to feedback and the next question; arrow keys between options;
+    inline submit error keeps the chosen answer. Flashcards: error handling, announced reveal/rating, focus management.
+    Rapid Round: server deadline unchanged; announced countdown (30 s, 10 s, time up), no per-tick timer label,
+    single finish request, A–D keys, explicit time-up state.
+  - Progress: grammar and labelled estimates, "N concepts with no evidence yet", Mastery/Assessment/Activity headings.
+    Calendar: "Next 48 hours" list (day, time, time until, subject, preparation). PTM: evidence vs interpretation
+    labels, evidence-base line, findings instead of SWOT labels (same data). Profile: Appearance (Light/Dark/System).
+    Auth: still NASA Earth instead of animated origami; linked labels/hints; Show/Hide password.
+  - Earth: three.js via `components/three-lite.js` (chunk 684.1 kB / 175.8 kB gzip → 485.6 kB / 124.8 kB, no build
+    warning); night texture fetched only in dark theme; idle frames ~2/s instead of ~12/s; WebGL probe context and
+    renderer context released on unmount; pending idle timer cleared on unmount.
+  - Verification: pytest 314 passed (dev DB hash unchanged), ruff clean, Vite build OK, headless Edge harness
+    `e2e_phase8` 152/152 with no console/runtime/layout problems, WebGL-disabled fallback probe OK.
+    Not done: physical-device testing (manual checklist in the phase report).
+
+- (Phase Cosmic Atmosphere — 2026-10-14) **Ready for review.** App-wide night sky; frontend-only, no new dependencies.
+  - `components/Starfield.jsx` + `styles/sky.css`, mounted once in `App.jsx` (same position in every branch, so it
+    survives sign-in/out and route changes). Canvas 2D, not Three.js: two static star canvases moved by CSS transforms
+    for pointer parallax (far 4 px, near 12 px max, mouse/pen only), one small canvas for ~10 twinkling stars and a
+    rare shooting star (one at a time, 14–34 s apart in dark, 26–60 s in light). Seeded star field, density scales
+    with viewport, DPR capped at 1.5. Stops when the tab is hidden; reduced motion = still sky; no canvas = CSS only.
+  - `html[data-sky]`: open (landing/auth), calm (most pages, 80%), focus (Teacher session, diagnostic, report,
+    flashcards, Rapid Round: 55% and no shooting stars). Light theme uses a faint cobalt/indigo overlay.
+  - Verification: Vite build OK (main JS +7.3 kB); pytest 314 passed, ruff clean, dev DB hash unchanged by pytest;
+    sky harness 40/40 + no-canvas 4/4; regression harness `e2e_phase8` 152/152; Earth fallback probe OK; idle cost
+    ~40–100 ms main-thread time per 10 s over a static sky (measured in headless Edge).

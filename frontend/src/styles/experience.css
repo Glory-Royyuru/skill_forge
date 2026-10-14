@@ -1,0 +1,143 @@
+/* Page-level experience built on the world system (world.css). */
+
+/* --- Dashboard: the recommendation as a route --------------------------- */
+.dash-route {
+  position: relative; margin: 6px 0 22px; padding: 22px 26px 10px; border-radius: 14px;
+  background: var(--grain), var(--world-paper); background-size: 160px 160px, auto;
+  border: 1px solid var(--line); overflow: hidden;
+}
+.dash-route::before { content: ""; position: absolute; inset: 0; background: radial-gradient(40% 70% at 85% 50%, rgba(50, 94, 200, 0.1), transparent 70%); pointer-events: none; }
+.dash-route-q { position: relative; font-size: clamp(1.5rem, 1.1rem + 1.4vw, 2.3rem); font-weight: 460; margin: 0; }
+.dash-route .route { margin-top: 4px; }
+.dash-map .kworld { height: 100%; border-radius: 0; border: none; box-shadow: none; }
+
+/* --- Learn -------------------------------------------------------------- */
+.learn-landscape > .kworld { margin: 4px 0 18px; }
+.area-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--tone, var(--blue)); flex-shrink: 0; }
+.domain-motif-disc { fill: var(--paper); stroke: var(--tone, var(--blue)); stroke-width: 1.5; }
+.domain-kind-badge.roadmap { border-style: dashed; color: var(--muted); }
+.landscape-subject-btn.is-roadmap .landscape-subject-name { color: var(--muted); }
+.landscape-subject-btn.is-roadmap { border-style: dashed; }
+.roadmap-note { margin-top: 18px; padding: 18px 20px; border: 1px dashed var(--line-strong); border-radius: 10px; background: var(--paper-2); }
+.roadmap-note p { margin: 0 0 8px; color: var(--ink-2); }
+
+/* --- Practice: the wrong answer unfolds step by step --------------------- */
+.teach > * { animation: fade-in 0.25s ease both; }
+@keyframes unfold { from { opacity: 0; transform: translateY(-8px) rotateX(-18deg); transform-origin: top; } }
+.ans-yours .ans-v { text-decoration: line-through; text-decoration-color: var(--coral); text-decoration-thickness: 1.5px; }
+.session-top .looppath { width: min(560px, 100%); }
+
+.deck { transform-style: preserve-3d; }
+.deck-under { transform-origin: bottom center; }
+
+.rapid-time .num { font-size: clamp(2.8rem, 2rem + 3vw, 4.4rem) !important; transition: color 0.3s; }
+.rapid-clock.low .rapid-time .num { color: var(--coral); }
+@keyframes tick { 50% { transform: scale(1.06); } }
+.rapid-q { animation: fly-in 0.45s var(--ease) both; }
+@keyframes fly-in { from { opacity: 0; transform: translateX(40px) rotate(1deg); } }
+
+/* --- Progress: three measures, three tracks ------------------------------ */
+.measures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 30px; margin: 4px 0 26px; }
+.measure { position: relative; padding: 18px 20px; border-radius: 10px; background: var(--paper); border: 1px solid var(--line);  }
+@keyframes slip { from { opacity: 0; transform: translateY(16px) rotate(calc((var(--i) - 1) * 1.5deg)); } }
+.measure-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.measure-k { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--tone); }
+.measure-what { font-size: 0.78rem; color: var(--muted); }
+.measure-v { font-size: 2.2rem; font-weight: 460; margin: 6px 0 8px; }
+.measure-track { height: 8px; border-radius: 99px; background: var(--paper-2); overflow: hidden; }
+.measure-track span { display: block; height: 100%; width: calc(var(--f) * 100%); border-radius: 99px; background: var(--tone); transform-origin: left; animation: grow 1.3s var(--ease) both; animation-delay: calc(0.3s + var(--i) * 0.15s); }
+.measure-sub { margin-top: 8px; font-size: 0.82rem; color: var(--ink-2); }
+.measure-neq { position: absolute; right: -24px; top: 50%; transform: translateY(-50%); font-family: var(--serif); font-size: 1.8rem; color: var(--coral); }
+
+/* --- Calendar: upcoming timeline ---------------------------------------- */
+.timeline { margin: 4px 0 24px; padding: 18px 22px 20px; border-radius: 12px; background: var(--grain), var(--world-paper); background-size: 160px 160px, auto; border: 1px solid var(--line); }
+.timeline-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.timeline-empty { margin: 6px 0 0; }
+.timeline-track { position: relative; list-style: none; margin: 10px 0 0; padding: 26px 0 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+.timeline-line { position: absolute; left: 0; right: 0; top: 0; width: 100%; height: 30px; }
+.tl-stop { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border-radius: 8px; background: var(--paper); border: 1px solid var(--line); box-shadow: 0 16px 30px -26px rgba(0, 0, 0, 0.5); }
+.tl-stop::before { content: ""; position: absolute; top: -21px; left: 18px; width: 11px; height: 11px; border-radius: 50%; background: var(--orange); box-shadow: 0 0 0 4px var(--orange-soft); }
+.tl-when { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--orange); }
+.tl-subject { font-size: 1.2rem; font-weight: 520; }
+.tl-prep { margin-top: 8px; padding-top: 10px; border-top: 1px dashed var(--line-strong); display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.tl-prep-k { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--blue); }
+.tl-prep-t { font-weight: 650; }
+.tl-prep .btn { margin-top: 6px; }
+
+/* --- Profile: learning identity ------------------------------------------ */
+.identity { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 28px; align-items: center; margin: 4px 0 24px; padding: 20px 24px; border-radius: 14px; background: var(--grain), var(--world-paper); background-size: 160px 160px, auto; border: 1px solid var(--line); }
+.identity-ring { position: relative; width: 150px; height: 150px; }
+.identity-ring svg { width: 100%; height: 100%; }
+.id-track { fill: none; stroke: var(--paper-2); stroke-width: 8; }
+.id-cov { fill: none; stroke: var(--gold); stroke-width: 2; opacity: 0.8; }
+.id-fill { fill: none; stroke: var(--blue); stroke-width: 8; stroke-linecap: round; transition: stroke-dashoffset 1.4s var(--ease); animation: ring-in 1.4s var(--ease) both; }
+@keyframes ring-in { from { stroke-dashoffset: 264; } }
+.identity-pct { position: absolute; inset: 0; display: grid; place-items: center; font-size: 1.9rem; font-weight: 460; }
+.identity-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; margin: 0; }
+.identity-facts dt { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.identity-facts dd { margin: 2px 0 0; font-family: var(--serif); font-size: 1.05rem; }
+
+@media (max-width: 860px) {
+  .measures { grid-template-columns: 1fr; gap: 14px; }
+  .measure-neq { right: 50%; top: auto; bottom: -24px; transform: translateX(50%) rotate(90deg); font-size: 1.3rem; }
+  .identity { grid-template-columns: 1fr; justify-items: center; }
+  .identity-facts { grid-template-columns: 1fr; text-align: center; }
+  .dash-route { padding: 16px 12px 6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .teach > *, .measure, .measure-track span, .tl-stop, .id-fill, .rapid-q, .dash-route::before { animation: none !important; }
+  .deck { transform: none !important; }
+}
+
+/* Auth scene reacts to the step: the route draws further, the check lands. */
+.origami-sculpture .trail-draw { transition: stroke-dasharray 1.1s var(--ease-in-out); }
+.origami-svg { transform: translate(calc(var(--tx, 0) * 8px), calc(var(--ty, 0) * 6px)); transition: transform 0.6s var(--ease); }
+.auth-check circle { fill: var(--green); }
+.auth-check path { fill: none; stroke: #fff; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 30; animation: check-draw 0.7s var(--ease) 0.4s both; }
+.auth-check { animation: pop 0.5s var(--ease) both; }
+@keyframes check-draw { from { stroke-dashoffset: 30; } to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) { .origami-svg { transform: none; } .auth-check, .auth-check path { animation: none; } }
+
+/* Theme-safe surfaces (earlier rules hard-coded light colours). */
+.option { background: var(--paper); color: var(--ink); }
+.option-text { color: inherit; }
+.teacher-avatar { background: linear-gradient(135deg, var(--navy), var(--blue)); color: #fff; }
+.input, .input:focus { background: var(--paper); color: var(--ink); }
+.lm-head { gap: 8px; }
+.lm-active { margin-right: 6px; }
+
+/* Restored list and icon rules (dropped in an earlier stylesheet rewrite). */
+.cal-detail { list-style: none; margin: 0; padding: 0; }
+.cal-detail li { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; padding: 9px 0; border-top: 1px solid var(--line); }
+.cal-detail li:first-child { border-top: none; }
+.cal-detail li > :last-child { text-align: right; }
+.cal-detail .cal-topics { flex-direction: column; align-items: flex-start; gap: 4px; }
+.cal-detail .cal-topics > :last-child { text-align: left; }
+.icon.flip { transform: rotate(180deg); } /* icons only: a bare .flip class once rotated whole landing sections */
+
+/* The top bar stays ink in both themes; keep the active item readable. */
+.topnav .nav-link.active { background: rgba(255, 255, 255, 0.08); color: #fffaf0; }
+
+@media (max-width: 640px) {
+  .route-label { font-size: 30px; }
+  .route-stop.end .route-label { font-size: 32px; }
+  .route-sub { font-size: 22px; }
+  .kw-node-label { font-size: 15px; }
+  .kw-area-label { font-size: 15px; }
+}
+
+@media (max-width: 640px) {
+  .card-head { flex-wrap: wrap; gap: 6px 12px; }
+  .page-actions, .form-actions { flex-wrap: wrap; }
+  .btn { max-width: 100%; white-space: normal; }
+}
+
+@media (max-width: 1020px) {
+  .grid-2-1, .cal-grid { grid-template-columns: 1fr !important; }
+}
+
+/* Calm layer: short state-change feedback only; nothing loops except the Earth. */
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+.rise { animation: fade-in 0.22s ease both !important; }
+.reveal, .reveal.in { opacity: 1 !important; transform: none !important; transition: none !important; }
+.page { animation: fade-in 0.2s ease both; }

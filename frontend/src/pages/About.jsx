@@ -26,8 +26,9 @@ const STAGES = [
 
 const FLOW = [
   { k: "Student", v: "Answers a question", icon: "teacher" },
-  { k: "Teacher Agent", v: "Grades it, updates mastery, applies difficulty rules", icon: "book" },
-  { k: "Learner Model", v: "Bayesian Knowledge Tracing updates P(known) per concept", icon: "layers" },
+  { k: "Teacher Agent", v: "Grades it, updates mastery, applies difficulty rules", icon: "target" },
+  { k: "Learner State", v: "BKT estimate per concept, combined with recent accuracy, repeated mistakes, difficulty, recency and evidence weight", icon: "layers" },
+  { k: "Recommendation Engine", v: "Explainable rules turn your learner state and timetable into next actions, each with its evidence", icon: "pulse" },
   { k: "Adaptive Decision", v: "Rules choose difficulty; model chooses which concept to target", icon: "target" },
   { k: "Next Learning Action", v: "Teach, reinforce, or raise the challenge", icon: "arrowRight" },
 ];
@@ -96,7 +97,7 @@ export default function About() {
             </p>
             <p>
               Slip and guess rates vary with question difficulty. Parameters are standard defaults rather than
-              fitted to data. The model is pure Python and fully deterministic, and its estimates carry over
+              fitted to data. The model is pure Python and fully deterministic, and each student's estimates are stored with their account and carry over
               between sessions.
             </p>
           </div>

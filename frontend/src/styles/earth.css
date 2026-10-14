@@ -1,0 +1,42 @@
+/* The Earth (components/Earth.jsx). */
+
+.earth {
+  position: relative; aspect-ratio: 1 / 1; width: 100%;
+  touch-action: pan-y; /* vertical swipes scroll the page; horizontal drags rotate */
+  cursor: grab; outline: none; border-radius: 50%;
+  user-select: none; -webkit-user-select: none;
+}
+.earth.grabbing { cursor: grabbing; }
+.earth:focus-visible { box-shadow: 0 0 0 3px var(--focus-ring); }
+.earth-canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; display: block; }
+
+/* Static globe from the real imagery: shown while loading and when WebGL or
+   the textures are unavailable. */
+.earth-fallback { position: absolute; inset: 9.5%; border-radius: 50%; overflow: hidden; transition: opacity 0.5s ease; box-shadow: 0 0 0 1px rgba(104, 200, 240, 0.25), 0 0 28px rgba(104, 200, 240, 0.18); }
+.earth-fallback-map {
+  position: absolute; inset: 0;
+  background: url("/earth/earth-day-512.jpg") 38% 50% / 200% 100% no-repeat;
+}
+.earth-fallback::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  background:
+    radial-gradient(circle at 34% 30%, rgba(255, 255, 255, 0.18), transparent 40%),
+    radial-gradient(circle at 50% 50%, transparent 52%, rgba(4, 14, 34, 0.55) 72%, rgba(4, 14, 34, 0.85) 100%);
+}
+.earth[data-state="ready"] .earth-fallback { opacity: 0; }
+
+.earth-controls {
+  position: absolute; right: 4%; bottom: 4%; display: flex; gap: 6px; opacity: 0.75;
+  transition: opacity var(--dur-micro);
+}
+.earth:hover .earth-controls, .earth:focus-within .earth-controls { opacity: 1; }
+.earth-controls button {
+  min-width: 36px; height: 36px; padding: 0 10px; border-radius: 999px; cursor: pointer;
+  font: 600 0.8rem var(--sans); color: var(--ink); background: var(--paper);
+  border: 1px solid var(--line-strong); box-shadow: 0 2px 6px rgba(4, 14, 34, 0.12);
+}
+.earth-controls button:hover { border-color: var(--blue); color: var(--blue); }
+.earth-controls button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+@media (hover: none) { .earth-controls { opacity: 1; } .earth-controls button { min-width: 44px; height: 44px; } }
+
+.earth-credit { font-size: 0.7rem; color: var(--muted); }

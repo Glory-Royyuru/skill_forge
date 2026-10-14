@@ -1,0 +1,16 @@
+﻿Earth imagery: NASA Visible Earth (public domain; credit requested).
+
+earth-day-2k.jpg, earth-day-512.jpg
+  "Blue Marble: Next Generation" — topography and bathymetry, December 2004
+  (world.topo.bathy.200412). NASA Earth Observatory / Reto Stöckli, NASA GSFC.
+  https://visibleearth.nasa.gov/images/73909
+
+earth-clouds-2k.jpg
+  "Blue Marble: Clouds" (cloud_combined_2048). NASA Goddard Space Flight Center.
+  https://visibleearth.nasa.gov/images/57747
+
+earth-night-2k.jpg
+  "Earth at Night (Black Marble) 2016". NASA Earth Observatory / Joshua Stevens,
+  Suomi NPP VIIRS data. https://visibleearth.nasa.gov/images/144898
+
+Images were resized (and the cloud layer converted to greyscale) for the web.

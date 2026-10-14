@@ -13,7 +13,6 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 
 from skillforge.db import models  # noqa: F401  (ensures models register on Base.metadata)
-from skillforge.db.base import Base
 
 
 def make_engine(database_url: str) -> Engine:
@@ -26,4 +25,7 @@ def make_session_factory(engine: Engine) -> sessionmaker:
 
 
 def init_db(engine: Engine) -> None:
-    Base.metadata.create_all(bind=engine)
+    """Bring the schema up to date (see `skillforge.db.migrations`)."""
+    from skillforge.db.migrations import upgrade
+
+    upgrade(engine)

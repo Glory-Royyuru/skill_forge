@@ -1,41 +1,34 @@
-"""Persistence and progress analytics for Teacher Agent sessions.
+"""Per-student persistence and progress analytics for Teacher Agent sessions.
 
-Reuses the existing schema instead of adding tables: each teaching session
-is a `TrainingSession` row with ``condition="teacher"`` whose
-``config_json`` holds the engine's session state. The skill / agent /
-environment rows it hangs off are created on demand via the shared
-`db.helpers` get-or-create functions.
+Every function takes the authenticated student's `user_id` and every query
+filters on it, so one student can never read or change another's sessions,
+answers or learner-model state.
+
+Tables (see `skillforge.db.models`):
+- `learning_sessions` — one row per session; `state_json` holds the engine
+  state, the other columns are summaries for queries.
+- `answers` — one row per graded answer, with the adaptive decision taken.
+- `learner_concepts` — the student's learner-model estimate P(known) per
+  concept, carried across sessions and topics' re-takes.
 """
 
 from __future__ import annotations
 
 import copy
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 
 from skillforge.db.database import Database
-from skillforge.db.helpers import create_training_session, get_or_create_agent, get_or_create_skill
-from skillforge.db.models import Environment, TrainingSession
-from skillforge.teacher import engine
-from skillforge.teacher.curriculum import SUBJECTS, get_topic, public_curriculum, topic_ids
-
-CONDITION = "teacher"
-ENVIRONMENT_NAME = "teacher_curriculum"
-SKILL_NAME = "adaptive_teacher"
-AGENT_NAME = "teacher-agent"
+from skillforge.db.models import Answer, LearnerConcept, LearningSession
+from skillforge.learner import evidence
+from skillforge.learner import state as learner_state
+from skillforge.teacher import curriculum, engine
+from skillforge.teacher.learner_model import get_learner_model
 
 
-def _owner_ids(session) -> tuple[int, int]:
-    env = session.scalar(select(Environment).where(Environment.name == ENVIRONMENT_NAME))
-    if env is None:
-        env = Environment(name=ENVIRONMENT_NAME, version="1")
-        session.add(env)
-        session.commit()
-        session.refresh(env)
-    skill = get_or_create_skill(session, env.id, name=SKILL_NAME)
-    agent = get_or_create_agent(session, name=AGENT_NAME, provider="deterministic", model="rule-based")
-    return skill.id, agent.id
+def _now() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def _iso(dt: datetime | None) -> str | None:
@@ -45,114 +38,229 @@ def _iso(dt: datetime | None) -> str | None:
     return (dt if dt.tzinfo else dt.replace(tzinfo=UTC)).isoformat()
 
 
-# --- CRUD --------------------------------------------------------------------
+# --- Sessions ---------------------------------------------------------------------
 
 
-def create_session(db: Database, state: dict, created_at: datetime | None = None) -> int:
-    with db.session() as session:
-        # Only one active session at a time: starting a new one shelves the old.
-        for row in session.scalars(
-            select(TrainingSession).where(
-                TrainingSession.condition == CONDITION, TrainingSession.status == "active"
-            )
-        ):
-            row.status = "abandoned"
-        session.commit()
-        skill_id, agent_id = _owner_ids(session)
-        row = create_training_session(session, skill_id, agent_id, condition=CONDITION, config=state)
-        row.status = state["status"]
-        if created_at is not None:
-            row.created_at = created_at
-        session.commit()
+def _owned(session_id: int, user_id: int):
+    """Select a session only if it belongs to the student."""
+    return select(LearningSession).where(LearningSession.id == session_id, LearningSession.user_id == user_id)
+
+
+def create_session(db: Database, user_id: int, state: dict) -> int:
+    with db.session() as s:
+        # One active session per student: starting a new one shelves the old.
+        s.execute(
+            update(LearningSession)
+            .where(LearningSession.user_id == user_id, LearningSession.status == "active")
+            .values(status="abandoned")
+        )
+        row = LearningSession(
+            user_id=user_id, topic_id=state["topic_id"], status=state["status"],
+            state_json=copy.deepcopy(state), mastery=state["mastery"],
+        )
+        s.add(row)
+        s.commit()
         return row.id
 
 
-def load_session(db: Database, session_id: int) -> dict | None:
-    with db.session() as session:
-        row = session.get(TrainingSession, session_id)
-        if row is None or row.condition != CONDITION:
+def load_session(db: Database, user_id: int, session_id: int) -> dict | None:
+    """The engine state of a session the student owns, else None."""
+    with db.session() as s:
+        row = s.scalar(_owned(session_id, user_id))
+        if row is None:
             return None
-        return copy.deepcopy(row.config_json)
+        state = copy.deepcopy(row.state_json)
+        # A newer session may have shelved this one.
+        if row.status == "abandoned":
+            state["status"] = "abandoned"
+        return state
 
 
-def save_session(db: Database, session_id: int, state: dict) -> None:
-    with db.session() as session:
-        row = session.get(TrainingSession, session_id)
-        row.config_json = copy.deepcopy(state)  # reassign so SQLAlchemy sees the JSON change
+def record_answer(
+    db: Database, user_id: int, session_id: int, state: dict, feedback: dict, response_ms: int | None = None
+) -> None:
+    """Persist one graded answer atomically: the session state, the answer row
+    with the Teacher's decision, and the evidence event (which also updates the
+    student's persisted learner model; see `skillforge.learner.evidence`)."""
+    answer = state["answers"][-1]
+    topic_id = state["topic_id"]
+    concept_id = curriculum.concept_id(topic_id, answer["concept"])
+    lm = feedback.get("learner_model")
+    with db.session() as s:
+        row = s.scalar(_owned(session_id, user_id))
+        if row is None:  # pragma: no cover - callers load the session first
+            raise LookupError("session not found")
+        row.state_json = copy.deepcopy(state)  # reassign so SQLAlchemy sees the JSON change
         row.status = state["status"]
-        session.commit()
+        row.mastery = state["mastery"]
+        row.answered_count = len(state["answers"])
+        row.correct_count = sum(1 for a in state["answers"] if a["correct"])
+        if state["status"] == "completed":
+            row.completed_at = _now()
+
+        s.add(Answer(
+            session_id=session_id, user_id=user_id, question_id=answer["question_id"], concept_id=concept_id,
+            number=len(state["answers"]), choice=answer["choice"], correct=answer["correct"],
+            verdict=answer["verdict"], difficulty=answer["difficulty"], mastery_after=state["mastery"],
+            known_before=lm["known_before"] if lm else None, known_after=lm["known_after"] if lm else None,
+            decision_json={
+                "adaptation": feedback["adaptation"],
+                "transition": feedback["transition"],
+                "next_concept": feedback.get("next_concept_name"),
+                "targeting": lm.get("targeting") if lm else None,
+            },
+            response_ms=evidence.clean_response_ms(response_ms),
+        ))
+        model = get_learner_model(state["learner_model"]["name"]) if state.get("learner_model") else None
+        evidence.record(
+            s, user_id=user_id, concept_id=concept_id,
+            question=curriculum.get_question(topic_id, answer["question_id"]), source="session",
+            ref_id=session_id, correct=answer["correct"], response_ms=response_ms, model=model,
+        )
+        s.commit()
 
 
-def _rows(db: Database) -> list[tuple[int, str, dict, datetime | None]]:
-    with db.session() as session:
-        rows = session.scalars(
-            select(TrainingSession)
-            .where(TrainingSession.condition == CONDITION)
-            .order_by(TrainingSession.created_at, TrainingSession.id)
+# --- Prior state used to DIAGNOSE a new session ------------------------------------
+
+
+def prior_mastery(db: Database, user_id: int, topic_id: str) -> float | None:
+    """Mastery from the student's most recent completed session on this topic."""
+    with db.session() as s:
+        return s.scalar(
+            select(LearningSession.mastery)
+            .where(LearningSession.user_id == user_id, LearningSession.topic_id == topic_id,
+                   LearningSession.status == "completed")
+            .order_by(LearningSession.completed_at.desc(), LearningSession.id.desc())
+            .limit(1)
+        )
+
+
+def prior_knowledge(db: Database, user_id: int, topic_id: str) -> dict[str, float] | None:
+    """The student's persisted learner-model estimates for this topic's
+    concepts, keyed the way the engine expects, or None if there are none."""
+    prefix = f"{topic_id}/"
+    with db.session() as s:
+        rows = s.execute(
+            select(LearnerConcept.concept_id, LearnerConcept.p_known).where(
+                LearnerConcept.user_id == user_id, LearnerConcept.concept_id.startswith(prefix)
+            )
         ).all()
-        return [(r.id, r.status, copy.deepcopy(r.config_json), r.created_at) for r in rows]
+    return {cid[len(prefix):]: p for cid, p in rows} or None
 
 
-def prior_mastery(db: Database, topic_id: str) -> float | None:
-    """Mastery from the most recent completed session on this topic."""
-    latest = None
-    for _, status, state, _ in _rows(db):
-        if status == "completed" and state["topic_id"] == topic_id:
-            latest = state["mastery"]
-    return latest
+# --- Progress --------------------------------------------------------------------
 
 
-def prior_knowledge(db: Database, topic_id: str) -> dict[str, float] | None:
-    """Learner-model concept estimates from the most recent completed
-    session on this topic, so the model picks up where it left off."""
-    latest = None
-    for _, status, state, _ in _rows(db):
-        if status == "completed" and state["topic_id"] == topic_id and state.get("learner_model"):
-            latest = dict(state["learner_model"]["knowledge"])
-    return latest
+def _completed(db: Database, user_id: int) -> list[tuple[int, dict, datetime | None]]:
+    with db.session() as s:
+        rows = s.execute(
+            select(LearningSession.id, LearningSession.state_json, LearningSession.completed_at)
+            .where(LearningSession.user_id == user_id, LearningSession.status == "completed")
+            .order_by(LearningSession.completed_at, LearningSession.id)
+        ).all()
+    return [(i, st, c) for i, st, c in rows]
 
 
-# --- Demo seed ---------------------------------------------------------------
-
-# (topic, pattern of correct/incorrect answers, days ago). Chosen so the
-# dashboard opens with a mix of strong, developing, and weak results.
-DEMO_HISTORY = [
-    ("lists", [True, True, True, True, True], 4),
-    ("decision-trees", [True, True, False, True, True], 2),
-    ("binary-search", [True, False, False, True, False], 1),
-]
-
-
-def _simulate(topic_id: str, pattern: list[bool]) -> dict:
-    _, topic = get_topic(topic_id)
-    state = engine.start_session(topic_id)
-    for ok in pattern:
-        if state["status"] != "active":
-            break
-        q = next(x for x in topic["questions"] if x["id"] == state["current_question_id"])
-        choice = q["answer"] if ok else (q["answer"] + 1) % len(q["options"])
-        engine.submit_answer(state, q["id"], choice)
-    state["demo"] = True
-    return state
-
-
-def seed_demo_history(db: Database) -> bool:
-    """Populate a small sample learning history on an empty database so the
-    dashboard and progress pages have something to show on first launch.
-    Returns True if anything was seeded.
-    """
-    if _rows(db):
-        return False
-    now = datetime.now(UTC).replace(tzinfo=None)
-    for topic_id, pattern, days_ago in DEMO_HISTORY:
-        create_session(db, _simulate(topic_id, pattern), created_at=now - timedelta(days=days_ago, hours=3))
-    return True
+def topic_progress(
+    db: Database, user_id: int, state: learner_state.LearnerState | None = None
+) -> dict[str, dict]:
+    """Per assessable topic, derived from concept-level learner state:
+    `mastery` is the mean estimated knowledge over the topic's assessed
+    concepts (None until there is evidence), reported with `coverage`
+    (assessed / total concepts); `status` follows `learner.state.topic_status`."""
+    if state is None:
+        with db.session() as s:
+            state = learner_state.build(s, user_id)
+    sessions: dict[str, int] = {}
+    best: dict[str, float] = {}
+    for _, st, _ in _completed(db, user_id):
+        sessions[st["topic_id"]] = sessions.get(st["topic_id"], 0) + 1
+        best[st["topic_id"]] = max(best.get(st["topic_id"], 0.0), st["mastery"])
+    out = {}
+    for tid in curriculum.topic_ids():
+        summary = state.topic_summary(tid)
+        out[tid] = {
+            "mastery": summary["estimate"],
+            "coverage": summary["coverage"],
+            "concepts_assessed": summary["assessed"],
+            "concepts_total": summary["total"],
+            "attempts": summary["attempts"],
+            "best": best.get(tid),  # best single-session score, kept for reference
+            "sessions": sessions.get(tid, 0),
+            "status": summary["status"],
+            "needs_review": [c.name for c in state.by_topic(tid) if c.status == "needs_review"],
+        }
+    return out
 
 
-# --- Progress ----------------------------------------------------------------
+def curriculum_with_progress(db: Database, user_id: int) -> list[dict]:
+    progress = topic_progress(db, user_id)
+    active = active_session(db, user_id)
+    subjects = curriculum.public_curriculum()
+    for s in subjects:
+        for u in s["units"]:
+            for t in u["topics"]:
+                t["progress"] = progress.get(t["id"])
+                t["session_length"] = min(engine.QUESTIONS_PER_SESSION, t["question_count"])
+                t["active_session_id"] = active["id"] if active and active["topic_id"] == t["id"] else None
+    return subjects
 
 
-def _session_summary(session_id: int, state: dict, created_at: datetime | None) -> dict:
+def active_session(db: Database, user_id: int) -> dict | None:
+    with db.session() as s:
+        row = s.scalar(
+            select(LearningSession)
+            .where(LearningSession.user_id == user_id, LearningSession.status == "active")
+            .order_by(LearningSession.id.desc())
+            .limit(1)
+        )
+        if row is None:
+            return None
+        view = engine.session_view(row.state_json)
+        return {
+            "id": row.id,
+            "topic_id": view["topic_id"],
+            "topic_title": view["topic_title"],
+            "subject_name": view["subject_name"],
+            "question_number": view["question_number"],
+            "max_questions": view["max_questions"],
+            "mastery": view["mastery"],
+            "created_at": _iso(row.created_at),
+        }
+
+
+def learner_model_state(db: Database, user_id: int) -> dict:
+    """The student's persisted concept estimates, summarized."""
+    with db.session() as s:
+        rows = s.execute(
+            select(LearnerConcept.concept_id, LearnerConcept.p_known, LearnerConcept.attempts)
+            .where(LearnerConcept.user_id == user_id)
+            .order_by(LearnerConcept.p_known)
+        ).all()
+    concepts = []
+    for cid, p, attempts in rows:
+        topic_id, key = cid.split("/", 1)
+        found = curriculum.get_topic(topic_id)
+        if found is None:
+            continue
+        subject, topic = found
+        concepts.append({
+            "concept": topic["concepts"].get(key, {}).get("name", key),
+            "topic_id": topic_id,
+            "topic_title": topic["title"],
+            "subject_name": subject["name"],
+            "p_known": p,
+            "attempts": attempts,
+        })
+    return {
+        "tracked": len(concepts),
+        "average": sum(c["p_known"] for c in concepts) / len(concepts) if concepts else None,
+        "weakest": concepts[:4],
+        "strongest": list(reversed(concepts[-4:])) if concepts else [],
+    }
+
+
+def _session_summary(session_id: int, state: dict, completed_at: datetime | None) -> dict:
     report = engine.build_report(state)
     return {
         "id": session_id,
@@ -166,102 +274,53 @@ def _session_summary(session_id: int, state: dict, created_at: datetime | None) 
         "attempted": report["attempted"],
         "summary": report["summary"],
         "learner_model": report["learner_model"] is not None,
-        "created_at": _iso(created_at),
+        "created_at": _iso(completed_at),
     }
 
 
-def topic_progress(db: Database) -> dict[str, dict]:
-    """Per-topic latest/best mastery from completed sessions."""
-    out: dict[str, dict] = {
-        tid: {"mastery": None, "best": None, "sessions": 0, "status": "not_started"} for tid in topic_ids()
-    }
-    for _, status, state, _ in _rows(db):
-        if status != "completed":
-            continue
-        p = out.get(state["topic_id"])
-        if p is None:
-            continue
-        p["sessions"] += 1
-        p["mastery"] = state["mastery"]
-        p["best"] = max(p["best"] or 0.0, state["mastery"])
-    for p in out.values():
-        if p["mastery"] is None:
-            continue
-        p["status"] = "mastered" if p["mastery"] >= engine.PROFICIENT else "in_progress"
-    return out
-
-
-def curriculum_with_progress(db: Database) -> list[dict]:
-    progress = topic_progress(db)
-    subjects = public_curriculum()
-    for s in subjects:
-        for t in s["topics"]:
-            t["progress"] = progress[t["id"]]
-            t["session_length"] = min(engine.QUESTIONS_PER_SESSION, t["question_count"])
-    return subjects
-
-
-def active_session(db: Database) -> dict | None:
-    for session_id, status, state, created_at in reversed(_rows(db)):
-        if status == "active":
-            view = engine.session_view(state)
-            return {
-                "id": session_id,
-                "topic_id": view["topic_id"],
-                "topic_title": view["topic_title"],
-                "subject_name": view["subject_name"],
-                "question_number": view["question_number"],
-                "max_questions": view["max_questions"],
-                "mastery": view["mastery"],
-                "created_at": _iso(created_at),
-            }
-    return None
-
-
-def progress_overview(db: Database) -> dict:
-    rows = _rows(db)
-    completed = [(i, s, c) for i, status, s, c in rows if status == "completed"]
-    tp = topic_progress(db)
-
-    started = [p["mastery"] for p in tp.values() if p["mastery"] is not None]
-    overall = sum(started) / len(started) if started else None
+def progress_overview(db: Database, user_id: int) -> dict:
+    """Progress summary built on concept-level learner state (see
+    `skillforge.learner.state` for the status rules and aggregation)."""
+    with db.session() as s:
+        state = learner_state.build(s, user_id)
+    completed = _completed(db, user_id)
+    tp = topic_progress(db, user_id, state)
+    overall = state.overall()
 
     subjects = []
-    for s in SUBJECTS:
-        ms = [tp[t["id"]]["mastery"] or 0.0 for t in s["topics"]]
-        subjects.append(
-            {
-                "id": s["id"],
-                "name": s["name"],
-                "mastery": sum(ms) / len(ms),
-                "topics_started": sum(1 for t in s["topics"] if tp[t["id"]]["mastery"] is not None),
-                "topics_total": len(s["topics"]),
-                "topics": [
-                    {"id": t["id"], "title": t["title"], **tp[t["id"]]} for t in s["topics"]
-                ],
-            }
+    for subj in curriculum.subjects():
+        ids = curriculum.assessable_in_subject(subj["id"])
+        summary = state.subject_summary(subj["id"])
+        subjects.append({
+            "id": subj["id"],
+            "name": subj["name"],
+            "short_name": subj["short_name"],
+            "code": subj["code"],
+            "mastery": summary["estimate"],
+            "coverage": summary["coverage"],
+            "concepts_assessed": summary["assessed"],
+            "concepts_total": summary["total"],
+            "topics_started": sum(1 for t in ids if tp[t]["status"] != "not_started"),
+            "topics_total": len(ids),
+            "topics": [{"id": t, "title": curriculum.get_topic(t)[1]["title"], **tp[t]} for t in ids],
+        })
+
+    with db.session() as s:
+        answered = s.scalar(select(func.count(Answer.id)).where(Answer.user_id == user_id))
+        correct = s.scalar(
+            select(func.count(Answer.id)).where(Answer.user_id == user_id, Answer.correct.is_(True))
         )
 
-    answered = sum(len(s["answers"]) for _, s, _ in completed)
-    correct = sum(sum(1 for a in s["answers"] if a["correct"]) for _, s, _ in completed)
-
-    # Strengths / areas to improve: from the latest completed session per topic.
-    latest_by_topic: dict[str, dict] = {}
-    for _, s, _ in completed:
-        latest_by_topic[s["topic_id"]] = s
-    strengths, improve = [], []
-    for tid in topic_ids():
-        s = latest_by_topic.get(tid)
-        if s is None:
-            continue
-        report = engine.build_report(s)
-        for c in report["concepts"]:
-            item = {"concept": c["name"], "topic_id": tid, "topic_title": report["topic_title"]}
-            if c["status"] == "strong":
-                strengths.append(item)
-            elif c["status"] in ("weak", "developing"):
-                improve.append({**item, "status": c["status"]})
-    improve.sort(key=lambda x: 0 if x["status"] == "weak" else 1)
+    strengths = [
+        {"concept": c.name, "topic_id": c.topic_id, "topic_title": c.topic_title, "p_known": c.p_known}
+        for c in sorted(state.assessed(), key=lambda c: -(c.p_known or 0)) if c.status == "mastered"
+    ]
+    improve = [
+        {"concept": c.name, "topic_id": c.topic_id, "topic_title": c.topic_title, "p_known": c.p_known,
+         "status": "weak" if c.status == "needs_review" else "developing"}
+        for c in sorted(state.assessed(), key=lambda c: (c.status != "needs_review", c.p_known or 0))
+        if c.status in ("needs_review", "learning")
+    ]
 
     if completed:
         last_id, last_state, _ = completed[-1]
@@ -275,31 +334,40 @@ def progress_overview(db: Database) -> dict:
             "from_session_id": last_id,
         }
     else:
-        first_subject, first_topic = SUBJECTS[0], SUBJECTS[0]["topics"][0]
+        first = curriculum.topic_ids()[0]
+        subject, topic = curriculum.get_topic(first)
         recommended = {
-            "topic_id": first_topic["id"],
-            "topic_title": first_topic["title"],
-            "subject_name": first_subject["name"],
-            "headline": f"Start with {first_topic['title']}",
-            "reason": "A good first topic: short, concrete, and it sets up later lessons.",
+            "topic_id": first,
+            "topic_title": topic["title"],
+            "subject_name": subject["name"],
+            "headline": f"Start with {topic['title']}",
+            "reason": "Start your first learning session. Your teacher will diagnose where you are and "
+            "adapt every question to you.",
             "from_session_id": None,
         }
 
-    recent = [_session_summary(i, s, c) for i, s, c in reversed(completed)][:8]
-
     return {
-        "overall_mastery": overall,
-        "topics_started": len(started),
+        # Concept-level: mean estimated knowledge over assessed concepts, with coverage.
+        "overall_mastery": overall["estimate"],
+        "coverage": overall["coverage"],
+        "concepts_assessed": overall["assessed"],
+        "concepts_total": overall["total"],
+        "concepts_mastered": overall["mastered"],
+        "concepts_needs_review": overall["needs_review"],
+        "topics_started": sum(1 for p in tp.values() if p["status"] != "not_started"),
         "topics_total": len(tp),
         "topics_mastered": sum(1 for p in tp.values() if p["status"] == "mastered"),
+        "topics_needs_review": sum(1 for p in tp.values() if p["status"] == "needs_review"),
+        "subjects_studied": sum(1 for s in subjects if s["concepts_assessed"]),
         "sessions_completed": len(completed),
         "questions_answered": answered,
         "correct_answers": correct,
-        "accuracy": correct / answered if answered else None,
+        "accuracy": (correct / answered) if answered else None,
         "subjects": subjects,
         "strengths": strengths,
         "areas_to_improve": improve,
         "recommended": recommended,
-        "active_session": active_session(db),
-        "recent_sessions": recent,
+        "active_session": active_session(db, user_id),
+        "recent_sessions": [_session_summary(i, st, c) for i, st, c in reversed(completed)][:8],
+        "learner_model": learner_model_state(db, user_id),
     }

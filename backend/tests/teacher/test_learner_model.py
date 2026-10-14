@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
-
-from skillforge.api.app import create_app
 from skillforge.teacher import engine
 from skillforge.teacher.curriculum import get_question, get_topic
 from skillforge.teacher.learner_model import BKTLearnerModel, get_learner_model
@@ -86,7 +83,7 @@ def test_probable_guess_keeps_teacher_on_the_same_concept():
 
 
 def test_engine_runs_without_learner_model():
-    state = engine.start_session("stacks", learner_model=None)
+    state = engine.start_session("lab-page-replacement", learner_model=None)
     for ok in [True, False, True, True, False]:
         fb = _answer(state, ok)
         assert fb["learner_model"] is None
@@ -95,16 +92,16 @@ def test_engine_runs_without_learner_model():
     assert engine.build_report(state)["learner_model"] is None
 
 
-def test_concept_estimates_carry_over_between_sessions(tmp_path):
-    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'lm.db'}", seed_demo=False))
-    s = client.post("/api/teacher/session/start", json={"topic_id": "arrays"}).json()
+def test_concept_estimates_carry_over_between_sessions(make_student):
+    client = make_student()
+    s = client.post("/api/teacher/session/start", json={"topic_id": "os-cpu-scheduling"}).json()
     for _ in range(5):
         q = s["current_question"]
-        ans = get_question("arrays", q["id"])["answer"]
+        ans = get_question("os-cpu-scheduling", q["id"])["answer"]
         s = client.post(
             f"/api/teacher/session/{s['id']}/answer", json={"question_id": q["id"], "choice": ans}
         ).json()["session"]
     finished = {c["id"]: c["estimate"] for c in s["concepts"]}
-    again = client.post("/api/teacher/session/start", json={"topic_id": "arrays"}).json()
+    again = client.post("/api/teacher/session/start", json={"topic_id": "os-cpu-scheduling"}).json()
     assert {c["id"]: c["estimate"] for c in again["concepts"]} == finished
     assert any("Learner model restored" in entry["text"] for entry in again["log"])

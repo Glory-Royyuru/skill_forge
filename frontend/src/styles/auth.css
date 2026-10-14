@@ -1,0 +1,290 @@
+/* Authentication: a still Earth on the ocean band at left, the form on ivory at right. */
+
+.auth {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(420px, 0.85fr);
+  min-height: 100svh;
+  background: var(--bg);
+}
+
+.auth-scene {
+  position: sticky;
+  top: 0;
+  height: 100svh;
+  display: flex;
+  flex-direction: column;
+  padding: 32px 48px;
+  background:
+    radial-gradient(60% 50% at 50% 42%, rgba(104, 200, 240, 0.08), transparent 70%),
+    linear-gradient(180deg, var(--desk-2), var(--desk));
+  border-right: 1px solid var(--desk-line);
+  overflow: hidden;
+}
+
+.auth-brand-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.auth-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  color: var(--on-dark);
+}
+
+.auth-brand-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, var(--blue), var(--ocean) 70%);
+  color: #f4f1ea;
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 0.95rem;
+  display: grid;
+  place-items: center;
+  box-shadow: inset 0 0 0 1px rgba(104, 200, 240, 0.35);
+}
+
+.auth-brand-name {
+  font-family: var(--serif);
+  font-size: 1.25rem;
+  font-weight: 560;
+  letter-spacing: -0.01em;
+  color: var(--on-dark);
+}
+
+.auth-visual-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 20px 0;
+}
+
+/* The still Earth: same NASA image as the landing fallback, no motion. */
+.auth-earth {
+  width: 100%;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 26px;
+}
+
+.auth-globe {
+  position: relative;
+  width: min(300px, 62%);
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(104, 200, 240, 0.28), 0 0 36px rgba(104, 200, 240, 0.16);
+}
+.auth-globe-map {
+  position: absolute;
+  inset: 0;
+  background: url("/earth/earth-day-512.jpg") 38% 50% / 200% 100% no-repeat;
+}
+.auth-globe::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 34% 30%, rgba(255, 255, 255, 0.16), transparent 40%),
+    radial-gradient(circle at 50% 50%, transparent 52%, rgba(4, 14, 34, 0.55) 72%, rgba(4, 14, 34, 0.88) 100%);
+}
+
+.auth-earth-text .kicker { color: var(--atmo); justify-content: center; }
+.auth-earth-title {
+  font-size: 1.5rem;
+  line-height: 1.18;
+  font-weight: 500;
+  color: var(--on-dark);
+  margin: 8px 0 8px;
+}
+.auth-earth-body {
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--on-dark-muted);
+  margin: 0 auto;
+  max-width: 36ch;
+}
+.auth-earth-credit {
+  font-size: 0.72rem;
+  color: var(--on-dark-muted);
+  opacity: 0.8;
+  margin: 0;
+}
+
+/* Right side: editorial auth panel */
+
+.auth-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 56px clamp(24px, 5vw, 64px);
+  background: var(--bg);
+}
+
+.auth-panel-inner {
+  width: 100%;
+  max-width: 420px;
+  animation: auth-in 0.45s var(--ease) both;
+}
+
+@keyframes auth-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.auth-title {
+  font-size: clamp(1.9rem, 1.4rem + 1.2vw, 2.4rem);
+  line-height: 1.1;
+  font-weight: 500;
+  margin-bottom: 8px;
+  color: var(--ink);
+}
+
+.auth-subtitle {
+  color: var(--muted);
+  font-size: 0.96rem;
+  margin-bottom: 24px;
+}
+
+.auth-form .form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-label {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.field-hint {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.field-error {
+  color: var(--bad);
+}
+
+.input {
+  width: 100%;
+  padding: 11px 14px;
+  font: inherit;
+  font-size: 0.92rem;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--navy);
+  box-shadow: 0 0 0 3px rgba(22, 49, 92, 0.12);
+}
+
+.input-error {
+  border-color: var(--bad);
+}
+
+.input-error:focus {
+  border-color: var(--bad);
+  box-shadow: 0 0 0 3px rgba(170, 54, 44, 0.15);
+}
+
+.form-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -6px;
+}
+
+.auth-switch {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  font-size: 0.9rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.dev-note {
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  background: var(--paper-2);
+  font-size: 0.86rem;
+  color: var(--ink-2);
+}
+
+.dev-note p { margin: 4px 0 8px; }
+.dev-note-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--warn);
+}
+
+.dev-link {
+  font-weight: 650;
+  color: var(--navy);
+  word-break: break-all;
+}
+
+@media (max-width: 960px) {
+  .auth {
+    grid-template-columns: 1fr;
+  }
+  .auth-scene {
+    position: relative;
+    height: auto;
+    padding: 24px 20px;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+  .auth-earth { flex-direction: row; text-align: left; gap: 18px; max-width: none; }
+  .auth-globe { width: 84px; flex-shrink: 0; }
+  .auth-earth-text .kicker { justify-content: flex-start; }
+  .auth-earth-title { font-size: 1.15rem; margin: 4px 0; }
+  .auth-earth-body { font-size: 0.86rem; max-width: none; }
+  .auth-earth-credit { display: none; }
+  .auth-panel {
+    padding: 36px 20px 48px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-panel-inner {
+    animation: none !important;
+  }
+}

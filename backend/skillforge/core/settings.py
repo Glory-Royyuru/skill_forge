@@ -45,13 +45,52 @@ class Settings(BaseSettings):
     # --- LLM response cache ---------------------------------------------
     llm_cache_enabled: bool = Field(default=True)
 
-    # --- Teacher Agent demo ---------------------------------------------
-    # Seed a small sample learning history into an empty database on
-    # startup so the dashboard isn't blank on first launch.
-    teacher_seed_demo: bool = Field(default=True)
+    # --- Teacher Agent ----------------------------------------------------
     # Offline learner model used as a supporting signal by the Teacher:
     # "bkt" (Bayesian Knowledge Tracing) or "none" to disable it.
     teacher_learner_model: str = Field(default="bkt")
+
+    # --- Application / web ------------------------------------------------
+    # "development" enables developer conveniences (see dev_email_outbox);
+    # use "production" for any deployment.
+    app_env: str = Field(default="development")
+    # Base URL of the frontend; used to build links in emails.
+    frontend_base_url: str = Field(default="http://localhost:5173")
+    # Browser origins allowed to call the API with credentials (comma-separated).
+    cors_origins: str = Field(default="http://localhost:5173,http://127.0.0.1:5173")
+
+    # --- Authentication -----------------------------------------------------
+    session_cookie_name: str = Field(default="sf_session")
+    session_ttl_hours: int = Field(default=24 * 7)
+    # Set true whenever the site is served over HTTPS.
+    session_cookie_secure: bool = Field(default=False)
+    verification_token_ttl_hours: int = Field(default=24)
+    reset_token_ttl_minutes: int = Field(default=60)
+
+    # --- Email --------------------------------------------------------------
+    # "console": do not send; write the message (with its link) to the server
+    # log. "smtp": deliver through the SMTP server below.
+    email_backend: str = Field(default="console")
+    smtp_host: str | None = Field(default=None)
+    smtp_port: int = Field(default=587)
+    smtp_username: str | None = Field(default=None)
+    smtp_password: str | None = Field(default=None)
+    smtp_from: str = Field(default="SkillForge <no-reply@localhost>")
+    smtp_starttls: bool = Field(default=True)
+    smtp_ssl: bool = Field(default=False)
+    smtp_timeout_seconds: int = Field(default=10)
+    # Development only: expose unsent console-backend emails at
+    # GET /api/dev/outbox (localhost requests only). Ignored unless
+    # app_env == "development" and email_backend == "console".
+    dev_email_outbox: bool = Field(default=True)
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip().rstrip("/") for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def dev_outbox_enabled(self) -> bool:
+        return self.dev_email_outbox and self.app_env == "development" and self.email_backend == "console"
 
 
 def get_settings() -> Settings:

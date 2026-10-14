@@ -1,0 +1,141 @@
+/* The knowledge world: paper-map territories, paths that draw themselves,
+   travellers, pointer parallax. Shared by Landing, Learn, Dashboard, Session. */
+
+:root {
+  --world-paper: #f7f2e6;
+  --world-ink: #1d2a24;
+  --tone-cobalt: var(--blue);
+  --tone-orange: var(--orange);
+  --tone-coral: var(--coral);
+  --tone-teal: var(--teal);
+  --tone-gold: var(--gold);
+}
+html[data-theme="dark"] {
+  --world-paper: #142033;
+  --world-ink: #e9e3d4;
+}
+
+.tone-cobalt { --tone: var(--tone-cobalt); }
+.tone-orange { --tone: var(--tone-orange); }
+.tone-coral { --tone: var(--tone-coral); }
+.tone-teal { --tone: var(--tone-teal); }
+.tone-gold { --tone: var(--tone-gold); }
+.tone-blue { --tone: var(--blue); }
+.tone-ink { --tone: var(--world-ink); }
+
+/* Ambient motion pauses with the tab. */
+html.is-hidden *, html.is-hidden *::before, html.is-hidden *::after { animation-play-state: paused !important; }
+
+@keyframes drift { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(0, -5px); } }
+@keyframes breathe { 0%, 100% { opacity: 0.55; transform: scale(1); } 50% { opacity: 0.9; transform: scale(1.12); } }
+@keyframes draw-in { from { stroke-dashoffset: 1; } }
+
+/* --- Trails -------------------------------------------------------------- */
+
+.trail-base { fill: none; stroke: var(--tone); stroke-width: 1.4; opacity: 0.22; }
+.trail-base.dashed { stroke-dasharray: 3 7; opacity: 0.35; }
+.trail-draw {
+  fill: none; stroke: var(--tone); stroke-width: 2.2; stroke-linecap: round;
+  stroke-dasharray: var(--drawn, 1) 1; stroke-dashoffset: 0;
+  animation: draw-in 1.6s var(--ease-in-out) both;
+}
+.tone-ink .trail-draw { stroke-width: 1.2; opacity: 0.35; }
+.trail-traveller { fill: var(--tone); }
+
+/* --- Motifs -------------------------------------------------------------- */
+
+.motif circle, .motif rect { fill: var(--tone, var(--blue)); }
+.motif-line { fill: none; stroke: var(--tone, var(--blue)); stroke-width: 1.4; opacity: 0.75; }
+.motif-line.thin { stroke-width: 1; opacity: 0.5; }
+.motif-packet { fill: var(--orange) !important; }
+.motif-ml .m-a { fill: var(--teal); }
+.motif-ml .m-b { fill: var(--orange); }
+
+/* --- World --------------------------------------------------------------- */
+
+.kworld {
+  position: relative; border-radius: 14px; overflow: hidden;
+  background:
+    radial-gradient(70% 60% at 50% 40%, rgba(255, 255, 255, 0.35), transparent 70%),
+    var(--grain), var(--world-paper);
+  background-size: auto, 160px 160px, auto;
+  border: 1px solid var(--line);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04), 0 30px 60px -40px rgba(20, 30, 25, 0.45);
+}
+html[data-theme="dark"] .kworld { background: radial-gradient(70% 60% at 50% 40%, rgba(83, 138, 255, 0.08), transparent 70%), var(--grain), var(--world-paper); background-size: auto, 160px 160px, auto; }
+/* Paper fold lines */
+.kworld::before, .kworld::after {
+  content: ""; position: absolute; pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.05), transparent);
+}
+.kworld::before { top: 0; bottom: 0; left: 50%; width: 22px; margin-left: -11px; }
+.kworld::after { left: 0; right: 0; top: 50%; height: 22px; margin-top: -11px; background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.04), transparent); }
+.kworld-svg { display: block; width: 100%; height: auto; }
+.kworld-caption { position: absolute; left: 16px; bottom: 10px; margin: 0; font-size: 0.74rem; color: var(--muted); font-style: italic; font-family: var(--serif); }
+
+.kw-layer { transition: transform 0.6s var(--ease); }
+
+.kw-territory { transition: opacity 0.5s; }
+.kw-land { fill: var(--tone); opacity: 0.1; stroke: var(--tone); stroke-opacity: 0.35; stroke-width: 1.2; transition: opacity 0.5s; }
+.kw-hatch { fill: url(#kw-hatch); opacity: 0.35; }
+.kw-hatch-line { stroke: var(--tone, var(--world-ink)); stroke-width: 0.6; opacity: 0.35; }
+.kw-territory .kw-hatch-line { stroke: var(--world-ink); }
+.kw-area-label { font-family: var(--sans); font-size: 11px; font-weight: 700; letter-spacing: 0.18em; fill: var(--world-ink); opacity: 0.6; }
+.has-focus .kw-territory:not(.focus) { opacity: 0.45; }
+.kw-territory.focus .kw-land { opacity: 0.2; }
+
+.kw-node { cursor: default; outline: none; }
+.kw-node[role="button"] { cursor: pointer; }
+.kw-node-body { transform-box: fill-box; transform-origin: center; transition: transform 0.3s var(--ease);  }
+.kw-node-disc { fill: var(--paper); stroke: var(--line-strong); stroke-width: 1.4; }
+.kw-node.live .kw-node-disc { stroke: var(--world-ink); stroke-opacity: 0.4; }
+.kw-node.roadmap .kw-node-disc { fill: transparent; stroke-dasharray: 3 3; }
+.kw-node.roadmap .motif { opacity: 0.55; }
+.kw-node-arc { fill: none; stroke: var(--blue); stroke-width: 3; stroke-linecap: round; transition: stroke-dashoffset 1.2s var(--ease); }
+.kw-node.st-needs_attention .kw-node-arc { stroke: var(--orange); }
+.kw-node-label { font-family: var(--sans); font-size: 10.5px; font-weight: 650; fill: var(--world-ink); }
+.kw-node.roadmap .kw-node-label { font-weight: 500; opacity: 0.7; }
+.kw-node-sub { font-size: 8.5px; letter-spacing: 0.12em; text-transform: uppercase; fill: var(--muted); }
+.kw-node[role="button"]:hover .kw-node-body, .kw-node:focus-visible .kw-node-body { transform: scale(1.18); }
+.kw-node:focus-visible .kw-node-disc { stroke: var(--blue); stroke-width: 2.5; }
+.kw-node.selected .kw-node-disc { fill: var(--blue-soft); stroke: var(--blue); stroke-width: 2.4; }
+.kw-node.here .kw-node-disc { stroke: var(--orange); stroke-width: 2.6; }
+.kw-you-dot { fill: var(--orange); }
+.kw-you-text { font-size: 7px; font-weight: 800; fill: #fff; letter-spacing: 0.08em; }
+.kw-you::before { content: ""; }
+.kw-route .trail-draw { stroke-width: 2.6; }
+
+/* --- Route (dashboard) -------------------------------------------------- */
+
+.route { position: relative; }
+.route-svg { width: 100%; height: auto; display: block; overflow: visible; }
+.route-dot { fill: var(--paper); stroke: var(--blue); stroke-width: 2.2; }
+.route-stop.start .route-dot { fill: var(--orange); stroke: var(--orange); }
+.route-stop.end .route-dot { fill: var(--blue); }
+.route-halo { fill: none; stroke: var(--blue); stroke-width: 1.4; transform-box: fill-box; transform-origin: center;  }
+.route-label { font-family: var(--serif); font-size: 15px; font-weight: 560; fill: var(--ink); }
+.route-stop.end .route-label { font-size: 17px; }
+.route-sub { font-size: 11px; fill: var(--muted); font-family: var(--sans); }
+.route-stop { }
+
+/* --- Teaching loop path ------------------------------------------------ */
+
+.looppath { min-width: 280px; }
+.looppath-svg { width: 100%; height: auto; display: block; }
+.lp-base { fill: none; stroke: var(--line-strong); stroke-width: 2; stroke-dasharray: 3 6; }
+.lp-done { fill: none; stroke: var(--blue); stroke-width: 2.6; stroke-linecap: round; stroke-dasharray: var(--drawn) 1; transition: stroke-dasharray 0.9s var(--ease-in-out); }
+.lp-stop { fill: var(--paper); stroke: var(--line-strong); stroke-width: 2; transition: r 0.4s var(--ease), fill 0.4s, stroke 0.4s; }
+.lp-stop.done { fill: var(--blue); stroke: var(--blue); }
+.lp-stop.now { fill: var(--accent); stroke: var(--accent); }
+.looppath-labels { display: flex; justify-content: space-between; margin-top: -2px; }
+.looppath-labels span { font-size: 0.72rem; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); width: 20%; text-align: center; transition: color 0.4s; }
+.looppath-labels span:first-child { text-align: left; }
+.looppath-labels span:last-child { text-align: right; }
+.looppath-labels .done { color: var(--ink-2); }
+.looppath-labels .now { color: var(--orange); }
+
+@media (prefers-reduced-motion: reduce) {
+  .kw-territory, .kw-node-body, .route-halo, .lp-stop.now { animation: none !important; }
+  .kw-layer,   .trail-draw { animation: none; }
+  .route-stop { opacity: 1; animation: none; }
+}
