@@ -1,0 +1,49 @@
+/* App-wide night sky (components/Starfield.jsx).
+   A fixed layer behind all content: it never takes pointer input, never
+   scrolls, and is clipped to the viewport so it cannot cause overflow.
+   The page background colour stays on <body>; this layer only adds stars and
+   a faint atmosphere, so cards, forms and dense screens keep their contrast. */
+
+.sky {
+  position: fixed; top: 0; left: 0; z-index: -1;
+  width: 100%; height: 100vh; height: 100lvh; /* large viewport: no jump when mobile bars move */
+  overflow: hidden; pointer-events: none; user-select: none;
+  contain: strict;
+  transition: opacity 0.6s ease;
+}
+.sky-layer {
+  position: absolute; top: -16px; left: -16px;
+  width: calc(100% + 32px); height: calc(100% + 32px);
+  will-change: transform;
+}
+
+/* Atmosphere: soft colour only, no blur filters, painted once. */
+.sky-atmos { position: absolute; inset: 0; }
+html[data-theme="dark"] .sky-atmos {
+  background:
+    radial-gradient(70% 55% at 12% 6%, rgba(72, 82, 168, 0.16), transparent 70%),
+    radial-gradient(60% 50% at 92% 88%, rgba(24, 104, 184, 0.12), transparent 70%),
+    linear-gradient(152deg, transparent 30%, rgba(150, 168, 230, 0.035) 46%, rgba(120, 110, 200, 0.03) 52%, transparent 68%);
+}
+html:not([data-theme="dark"]) .sky-atmos {
+  background:
+    radial-gradient(90% 60% at 30% -12%, rgba(24, 104, 184, 0.11), transparent 72%),
+    radial-gradient(60% 45% at 100% 100%, rgba(72, 82, 168, 0.06), transparent 70%),
+    linear-gradient(152deg, transparent 32%, rgba(24, 104, 184, 0.035) 48%, rgba(72, 82, 168, 0.03) 54%, transparent 70%);
+}
+
+/* How present the sky is, set per route by the shell (html[data-sky]).
+   open: landing and sign-in; calm: most pages; focus: answering questions. */
+html[data-sky="calm"] .sky { opacity: 0.8; }
+html[data-sky="focus"] .sky { opacity: 0.55; }
+html:not([data-theme="dark"])[data-sky="focus"] .sky { opacity: 0.4; }
+
+/* Let the sky show where pages used an opaque copy of the body colour. */
+.lw, .auth, .auth-panel { background: transparent; }
+html[data-theme="dark"] .auth-scene {
+  background:
+    radial-gradient(60% 50% at 50% 42%, rgba(104, 200, 240, 0.08), transparent 70%),
+    linear-gradient(180deg, color-mix(in srgb, var(--desk-2) 72%, transparent), color-mix(in srgb, var(--desk) 60%, transparent));
+}
+
+@media print { .sky { display: none; } }
